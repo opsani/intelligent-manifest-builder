@@ -91,3 +91,20 @@ class ImbKubernetes:
             }
             self.servoConfig['application']['components']['{}/{}'.format(tgtDeploymentName, c.name)] = {'settings': settings}
 
+        # Discover services and ingresses based deployment selector labels
+        tgtLabels = tgtDeployment.spec.selector.match_labels
+        if not tgtLabels:
+            raise Exception('Target deployment has no matchLabels selector')
+        all_services = core_client.list_namespaced_service(namespace=tgtNamespace)
+        tgtServices = [s for s in all_services.items if any(( s.spec.selector and k in s.spec.selector and s.spec.selector[k] == v for k, v in tgtLabels.items()))]
+        # Dump service manifest(s)
+        for s in tgtServices:
+            raw_serv = core_client.read_namespaced_service(namespace=tgtNamespace, name=s.metadata.name, _preload_content=False)
+            serv_obj = json.loads(raw_serv.data)
+            serv_obj.pop('status', None)
+            with open('{}-servmanifest.yaml'.format(s.metadata.name), 'w') as out_file:
+                yaml.dump(serv_obj, out_file, default_flow_style=False)
+
+        # TODO tgtIngresses = []
+
+

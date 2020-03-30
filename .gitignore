@@ -1,4 +1,5 @@
 __pycache__
 /config.yaml
 /*depmanifest.yaml
+/*servmanifest.yaml
 .vscode/settings.json
