@@ -1,0 +1,44 @@
+// For format details, see https://aka.ms/vscode-remote/devcontainer.json or this file's README at:
+// https://github.com/microsoft/vscode-dev-containers/tree/v0.106.0/containers/python-3
+{
+	"name": "Python 3",
+	"context": "..",
+	"dockerFile": "Dockerfile",
+	"remoteEnv": {
+		"SYNC_LOCALHOST_KUBECONFIG": "true",
+		"GOOGLE_APPLICATION_CREDENTIALS": "/root/.google/service-account.json"
+	},
+
+	"mounts": [
+			"source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",
+			"source=${env:HOME}${env:USERPROFILE}/.kube,target=/root/.kube-localhost,type=bind",
+			//"source=${env:HOME}${env:USERPROFILE}/.minikube,target=/root/.minikube-localhost,type=bind",
+			"source=${env:HOME}${env:USERPROFILE}/.aws,target=/root/.aws,type=bind",
+			"source=${env:HOME}${env:USERPROFILE}/.google,target=/root/.google,type=bind",
+	],
+
+	// Set *default* container specific settings.json values on container create.
+	"settings": { 
+		"terminal.integrated.shell.linux": "/bin/bash",
+		"python.pythonPath": "/usr/local/bin/python",
+		"python.linting.enabled": true,
+		"python.linting.pylintEnabled": true,
+		"python.linting.pylintPath": "/usr/local/bin/pylint"
+	},
+
+	// Add the IDs of extensions you want installed when the container is created.
+	"extensions": [
+		"ms-azuretools.vscode-docker",
+        "ms-kubernetes-tools.vscode-kubernetes-tools",
+		"ms-python.python"
+	],
+
+	// Use 'forwardPorts' to make a list of ports inside the container available locally.
+	"forwardPorts": [3000,5000,8000,8080,8443,9000],
+
+	// Use 'postCreateCommand' to run commands after the container is created.
+	"postCreateCommand": "pip install -r requirements.txt",
+
+	// Uncomment to connect as a non-root user. See https://aka.ms/vscode-remote/containers/non-root.
+	// "remoteUser": "vscode"
+}
