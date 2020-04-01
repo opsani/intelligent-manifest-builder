@@ -9,10 +9,14 @@ class ImbPrometheus:
 
     async def run(self, k8sImb):
         # prompt for endpoint
-        prom_endpoint = await self.ui.prompt_text_input(title='Prometheus Endpoint', prompt='Enter/Edit the prometheus endpoint for Servo to use', initial_text=k8sImb.prometheusEndpoint)
-        self.servoConfig['prometheus_endpoint'] = prom_endpoint
-
-        prom_endpoint = await self.ui.prompt_text_input(title='Prometheus Endpoint', prompt='Enter/Edit the local prometheus endpoint (for metrics discovery only)', initial_text=prom_endpoint)
+        config_endpoint, prom_endpoint = await self.ui.prompt_text_two_input(
+            title='Prometheus Endpoint',
+            prompt1='Enter/Edit the prometheus endpoint for Servo to use',
+            prompt2='Enter/Edit the local prometheus endpoint (for metrics discovery only)',
+            initial_text1=k8sImb.prometheusEndpoint,
+            initial_text2=k8sImb.prometheusEndpoint
+        )
+        self.servoConfig['prometheus_endpoint'] = config_endpoint
         query_url = '{}/api/v1/query'.format(prom_endpoint)
         
         # Get Deployment metrics
