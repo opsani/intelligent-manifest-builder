@@ -130,7 +130,7 @@ class ImbTui:
         await input_done.wait()
         return result
 
-    async def prompt_text_input(self, title, prompt):
+    async def prompt_text_input(self, title, prompt, initial_text = ''):
         result = None
         input_done = asyncio.Event()
 
@@ -148,12 +148,59 @@ class ImbTui:
 
         ok_button = Button(text='Ok', handler=ok_handler)
         cancel_button = Button(text='Cancel', handler=cancel_handler)
-        textfield = TextArea(multiline=False, accept_handler=accept)
+        textfield = TextArea(text=initial_text, multiline=False, accept_handler=accept)
 
         dialog = Dialog(
             title=title,
             body=HSplit(
                 [Window(FormattedTextControl(text=prompt), align=WindowAlign.CENTER, dont_extend_height=True), textfield,],
+                padding=Dimension(preferred=1, max=1),
+            ),
+            buttons=[ok_button, cancel_button],
+            modal=False,
+        )
+        dialog.container.container.content.style=""
+        self.app_frame.body = HSplit([
+            Window(),
+            dialog,
+            Window(),
+        ])
+        self.app.invalidate()
+        self.app.layout.focus(self.app_frame)
+        await input_done.wait()
+        return result
+
+    async def prompt_text_three_input(self, title, prompt1, prompt2, prompt3, initial_text1 = '', initial_text2 = '', initial_text3 = ''):
+        result = None
+        input_done = asyncio.Event()
+
+        def accept(buf) -> bool:
+            get_app().layout.focus(ok_button)
+            return True  # Keep text.
+
+        def ok_handler() -> None:
+            nonlocal result
+            result = ( textfield1.text, textfield2.text, textfield3.text )
+            input_done.set()
+
+        def cancel_handler() -> None:
+            input_done.set()
+
+        ok_button = Button(text='Ok', handler=ok_handler)
+        cancel_button = Button(text='Cancel', handler=cancel_handler)
+
+        textfield1 = TextArea(text=initial_text1, multiline=False, accept_handler=accept)
+        textfield2 = TextArea(text=initial_text2, multiline=False, accept_handler=accept)
+        textfield3 = TextArea(text=initial_text3, multiline=False, accept_handler=accept)
+
+        dialog = Dialog(
+            title=title,
+            body=HSplit(
+                [
+                    Window(FormattedTextControl(text=prompt1), align=WindowAlign.CENTER, dont_extend_height=True), textfield1,
+                    Window(FormattedTextControl(text=prompt2), align=WindowAlign.CENTER, dont_extend_height=True), textfield2,
+                    Window(FormattedTextControl(text=prompt3), align=WindowAlign.CENTER, dont_extend_height=True), textfield3
+                ],
                 padding=Dimension(preferred=1, max=1),
             ),
             buttons=[ok_button, cancel_button],

@@ -1,5 +1,6 @@
 __pycache__
-/config.yaml
-/*depmanifest.yaml
-/*servmanifest.yaml
 .vscode/settings.json
+
+app-manifests/*
+servo-manifests/opsani-servo-configmap.yaml
+servo-manifests/opsani-servo-deployment.yaml

@@ -1,18 +1,24 @@
 
 import json
 import kubernetes
+from pathlib import Path
+import re
 import yaml
 
 class ImbKubernetes:
     def __init__(self, ui):
         self.ui = ui
+        self.prometheusEndpoint = ''
+        self.depLabels = {}
+        self.servIngLabels = {}
 
     async def run(self):
+        Path('./app-manifests').mkdir(exist_ok=True)
         self.servoConfig = {'application': {'components': {}}}
-        kubeConfigPath = None
+        kubeConfigPath = kubernetes.config.kube_config.KUBE_CONFIG_DEFAULT_LOCATION
         # Get active context, prompt
         contexts, active_context = kubernetes.config.list_kube_config_contexts() # get active context from default kube config location
-        acceptActive = await self.ui.prompt_k8s_active_context(kubernetes.config.kube_config.KUBE_CONFIG_DEFAULT_LOCATION, active_context['name'], active_context['context']['cluster'])
+        acceptActive = await self.ui.prompt_k8s_active_context(kubeConfigPath, active_context['name'], active_context['context']['cluster'])
 
         if acceptActive:
             tgtContext = active_context
@@ -57,7 +63,7 @@ class ImbKubernetes:
         raw_dep_resp = apps_client.read_namespaced_deployment(name=tgtDeploymentName, namespace=tgtNamespace, _preload_content=False)
         dep_obj = json.loads(raw_dep_resp.data)
         dep_obj.pop('status', None)
-        with open('{}-depmanifest.yaml'.format(tgtDeploymentName), 'w') as out_file:
+        with open('app-manifests/{}-depmanifest.yaml'.format(tgtDeploymentName), 'w') as out_file:
             yaml.dump(dep_obj, out_file, default_flow_style=False)
 
         # Get containers, prompt if multiple
@@ -72,7 +78,9 @@ class ImbKubernetes:
             tgtContainers = [containers[di] for di in desiredIndexes]
         
         for c in tgtContainers:
-            cpu, mem = ('100m', '100Mi') if c.resources.limits is None else (c.resources.limits['cpu'], c.resources.limits['memory'])
+            cpu, mem = ('100m', '128Mi') if c.resources.limits is None else (c.resources.limits['cpu'], c.resources.limits['memory'])
+            cpu = float(re.search(r'\d+', cpu).group()) / 1000
+            mem = float(re.search(r'\d+', mem).group()) / 1024
             settings = {}
             settings['replicas'] = {
                 'min': tgtDeployment.spec.replicas,
@@ -92,19 +100,32 @@ class ImbKubernetes:
             self.servoConfig['application']['components']['{}/{}'.format(tgtDeploymentName, c.name)] = {'settings': settings}
 
         # Discover services and ingresses based deployment selector labels
-        tgtLabels = tgtDeployment.spec.selector.match_labels
-        if not tgtLabels:
+        self.depLabels = tgtDeployment.spec.selector.match_labels
+        if not self.depLabels:
             raise Exception('Target deployment has no matchLabels selector')
-        all_services = core_client.list_namespaced_service(namespace=tgtNamespace)
-        tgtServices = [s for s in all_services.items if any(( s.spec.selector and k in s.spec.selector and s.spec.selector[k] == v for k, v in tgtLabels.items()))]
-        # Dump service manifest(s)
+        all_tgt_ns_services = core_client.list_namespaced_service(namespace=tgtNamespace)
+        tgtServices = [s for s in all_tgt_ns_services.items if s.spec.selector and all(( k in self.depLabels and self.depLabels[k] == v for k, v in s.spec.selector.items()))]
         for s in tgtServices:
+            # Append to service labels
+            self.servIngLabels[s.metadata.name] = s.metadata.labels
+            # Dump service manifest(s)
             raw_serv = core_client.read_namespaced_service(namespace=tgtNamespace, name=s.metadata.name, _preload_content=False)
             serv_obj = json.loads(raw_serv.data)
             serv_obj.pop('status', None)
-            with open('{}-servmanifest.yaml'.format(s.metadata.name), 'w') as out_file:
+            with open('app-manifests/{}-servmanifest.yaml'.format(s.metadata.name), 'w') as out_file:
                 yaml.dump(serv_obj, out_file, default_flow_style=False)
 
+        # TODO expose tgtServices to loadgen
         # TODO tgtIngresses = []
-
-
+        
+        # List services in all namespaces, check for prometheus
+        all_ns_services = core_client.list_service_for_all_namespaces()
+        for serv in all_ns_services.items:
+            if serv.metadata.name == 'prometheus':
+                self.prometheusEndpoint = 'http://{}.{}.svc:{}'.format(
+                    serv.metadata.name,
+                    serv.metadata.namespace,
+                    serv.spec.ports[0].port
+                )
+                break
+        
