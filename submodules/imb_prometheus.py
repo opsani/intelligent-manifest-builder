@@ -9,12 +9,12 @@ class ImbPrometheus:
 
     async def run(self, k8sImb):
         # prompt for endpoint
-        config_endpoint, prom_endpoint = await self.ui.prompt_text_two_input(
+        config_endpoint, prom_endpoint = await self.ui.prompt_text_input(
             title='Prometheus Endpoint',
-            prompt1='Enter/Edit the prometheus endpoint for Servo to use',
-            prompt2='Enter/Edit the local prometheus endpoint (for metrics discovery only)',
-            initial_text1=k8sImb.prometheusEndpoint,
-            initial_text2=k8sImb.prometheusEndpoint
+            prompts=[
+                {'prompt': 'Enter/Edit the prometheus endpoint for Servo to use', 'initial_text': k8sImb.prometheusEndpoint},
+                {'prompt': 'Enter/Edit the local prometheus endpoint (for metrics discovery only)', 'initial_text': k8sImb.prometheusEndpoint}
+            ]
         )
         self.servoConfig['prometheus_endpoint'] = config_endpoint
         query_url = '{}/api/v1/query'.format(prom_endpoint)
@@ -35,29 +35,34 @@ class ImbPrometheus:
         num_metrics = len(desired_metrics)
         for i, m in enumerate(desired_metrics):
             query_text = '{}{{{}}}[1m]'.format(m, ','.join(query_labels))
-            met_name, query_text, unit = await self.ui.prompt_text_three_input(
+            met_name, query_text, unit = await self.ui.prompt_text_input(
                 title='Deployment Metrics Config {}/{}'.format(i+1, num_metrics),
-                prompt1='Enter/Edit the name of the metric to be used by servo:',
-                initial_text1=m,
-                prompt2='Edit Metric Query:',
-                initial_text2=query_text,
-                prompt3='Metric Unit:'
+                prompts=[
+                    {'prompt': 'Enter/Edit the name of the metric to be used by servo:', 'initial_text': m},
+                    {'prompt': 'Edit Metric Query:', 'initial_text': query_text},
+                    {'prompt': 'Metric Unit:'},
+                ]
             )
 
             self.servoConfig['metrics'][met_name] = { 'query': query_text }
             if unit:
                 self.servoConfig['metrics'][met_name]['unit'] = unit
 
-        # Get Service metrics
-        if len(k8sImb.services) > 1:
-            key_list = list(k8sImb.services.keys())
-            serv_options = [ '{} - {}'.format(k, k8sImb.services[k].metadata.labels) for k in key_list ]
-            desired_service_index = await self.ui.prompt_radio_list(title='Select K8s Service/Ingress to retrieve metrics for', header='Name - Labels:', values=serv_options)
-            desired_service_labels = k8sImb.services[key_list[desired_service_index]].metadata.labels
-        else:
-            desired_service_labels = k8sImb.services[list(k8sImb.services.keys())[0]].metadata.labels
+        # Get Service or Ingress metrics
+        if len(k8sImb.services) + len(k8sImb.ingresses) > 1:
+            si_options = [ { 'type': 'Service', 'name': s.metadata.name, 'labels': s.metadata.labels } for s in k8sImb.services ]\
+                + [{ 'type': 'Ingress', 'name': i.metadata.name, 'labels': i.metadata.labels } for i in k8sImb.ingresses ]
 
-        query_labels = [ '{}="{}"'.format(k, v) for k, v in desired_service_labels.items() ]
+            desired_index = await self.ui.prompt_radio_list(
+                title='Select K8s Service/Ingress to retrieve metrics for',
+                header='Type - Name - Labels:',
+                values=[ '{type} - {name} - {labels}'.format(**opt) for opt in si_options ]
+            )
+            desired_si_labels = si_options[desired_index]['labels']
+        else:
+            desired_si_labels = k8sImb.services[0].metadata.labels if k8sImb.services else k8sImb.ingresses[0].metadata.labels
+
+        query_labels = [ '{}="{}"'.format(k, v) for k, v in desired_si_labels.items() ]
         get_metrics_query_text = 'sum by(__name__)({{ {} }})'.format(','.join(query_labels))
         query_resp = requests.get(url=query_url, params={ 'query': get_metrics_query_text })
 
@@ -65,19 +70,19 @@ class ImbPrometheus:
         matching_metrics_names = [ m['metric']['__name__'] for m in matching_metrics ]
         matching_metrics_names.sort()
 
-        desired_metric_indexes = await self.ui.prompt_check_list(values=matching_metrics_names, title='Select Desired Service Metrics', header='Metric __name__:')
+        desired_metric_indexes = await self.ui.prompt_check_list(values=matching_metrics_names, title='Select Desired Service/Ingress Metrics', header='Metric __name__:')
         desired_metrics = [ matching_metrics_names[i] for i in desired_metric_indexes ]
 
         num_metrics = len(desired_metrics)
         for i, m in enumerate(desired_metrics):
             query_text = '{}{{{}}}[1m]'.format(m, ','.join(query_labels))
-            met_name, query_text, unit = await self.ui.prompt_text_three_input(
+            met_name, query_text, unit = await self.ui.prompt_text_input(
                 title='Service Metrics Config {}/{}'.format(i+1, num_metrics),
-                prompt1='Enter/Edit the name of the metric to be used by servo:',
-                initial_text1=m,
-                prompt2='Edit Metric Query:',
-                initial_text2=query_text,
-                prompt3='Metric Unit:'
+                prompts=[
+                    {'prompt': 'Enter/Edit the name of the metric to be used by servo:', 'initial_text': m},
+                    {'prompt': 'Edit Metric Query:', 'initial_text': query_text},
+                    {'prompt': 'Metric Unit:'},
+                ]
             )
 
             self.servoConfig['metrics'][met_name] = { 'query': query_text }

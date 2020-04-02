@@ -8,19 +8,20 @@ class ImbVegeta:
     async def run(self, k8sImb):
         app_load_endpoints = []
 
-        for _, serv in k8sImb.services.items():
+        for serv in k8sImb.services:
             app_load_endpoints.append({'url': 'http://{}.{}.svc:{}'.format(
                 serv.metadata.name,
                 serv.metadata.namespace,
                 serv.spec.ports[0].port
             ), 'host': None})
 
-        for _, ing in k8sImb.ingresses.items():
+        for ing in k8sImb.ingresses:
             ing_hostname = ing.status.load_balancer.ingress[0].hostname
-            if ing.spec.rules: # Get endpoint for any matching rule and path
+            # Get endpoint for any matching rule and path
+            if ing.spec.rules:
                 for r in ing.spec.rules:
                     for p in r.http.paths:
-                        if p.backend and any((p.backend.service_name == s.metadata.name for s in k8sImb.services.values())):
+                        if p.backend and any((p.backend.service_name == s.metadata.name for s in k8sImb.services)):
                             url = 'http://{}:{}{}'.format(
                                 ing_hostname,
                                 p.backend.service_port,
@@ -29,7 +30,7 @@ class ImbVegeta:
                             app_load_endpoints.append({'url': url, 'host': r.host})
 
             # Get endpoint for default backend if it matches any services
-            if ing.spec.backend and any((ing.spec.backend.service_name == s.metadata.name for s in k8sImb.services.values())):
+            if ing.spec.backend and any((ing.spec.backend.service_name == s.metadata.name for s in k8sImb.services)):
                 url = 'http://{}:{}'.format(ing_hostname, ing.spec.backend.service_port)
                 app_load_endpoints.append({'url': url, 'host': None})
 
@@ -40,16 +41,14 @@ class ImbVegeta:
         if desired_endpoint.get('host'):
             self.servoConfig['host'] = desired_endpoint['host'] # NOTE: servo-vegeta does not currently implement host http request header
 
-        load_rate, load_workers, load_max_workers, load_duration = await self.ui.prompt_text_four_input(
+        load_rate, load_workers, load_max_workers, load_duration = await self.ui.prompt_text_input(
             title='Vegeta Load Generation Configuration',
-            prompt1='Requests per minute',
-            initial_text1='3000/m',
-            prompt2='Number of workers',
-            initial_text2='50',
-            prompt3='Maximum number of workers',
-            initial_text3='500',
-            prompt4='Duration',
-            initial_text4='5m'
+            prompts=[
+                {'prompt': 'Requests per minute', 'initial_text': '3000/m'},
+                {'prompt': 'Number of workers', 'initial_text': '50'},
+                {'prompt': 'Maximum number of workers', 'initial_text': '500'},
+                {'prompt': 'Duration', 'initial_text': '5m'}
+            ]
         )
         self.servoConfig.update({
             'rate': load_rate,

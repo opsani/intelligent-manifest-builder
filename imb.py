@@ -147,12 +147,13 @@ class Imb:
 
             # TODO: logic to actually recommend a servo image based on discovery
             recommended_servo_image = 'opsani/servo-k8s-prom-vegeta:latest'
-            recommended_servo_image, opsani_account, app_name = await self.ui.prompt_text_three_input(
+            recommended_servo_image, opsani_account, app_name = await self.ui.prompt_text_input(
                 title='Servo Info',
-                prompt1='The following Servo image has been selected. Edit below to override with a different image',
-                prompt2='Please enter the name of your Optune account',
-                prompt3='Please enter the name of the application to be optimized as it appears in Optune',
-                initial_text1=recommended_servo_image
+                prompts=[
+                    {'prompt': 'The following Servo image has been selected. Edit below to override with a different image', 'initial_text': recommended_servo_image},
+                    {'prompt': 'Please enter the name of your Optune account'},
+                    {'prompt': 'Please enter the name of the application to be optimized as it appears in Optune'}
+                ]
             )
 
             servo_deployment['spec']['template']['spec']['containers'][0]['image'] = recommended_servo_image

@@ -10,8 +10,8 @@ class ImbKubernetes:
         self.ui = ui
         self.prometheusEndpoint = ''
         self.depLabels = {}
-        self.services = {}
-        self.ingresses = {}
+        self.services = []
+        self.ingresses = []
 
     async def run(self):
         Path('./app-manifests').mkdir(exist_ok=True)
@@ -26,7 +26,7 @@ class ImbKubernetes:
         else:
             changeConfig = await self.ui.promt_yn('Change Kubeconfig?', 'Would you like to use a kubeconfig from a different location?')
             if changeConfig:
-                kubeConfigPath = await self.ui.prompt_text_input(title='Enter Kubeconfig Path', prompt='Enter the file path of the desired Kubeconfig')
+                kubeConfigPath = await self.ui.prompt_text_input(title='Enter Kubeconfig Path', prompts=[{'prompt': 'Enter the file path of the desired Kubeconfig'}])
                 contexts, active_context = kubernetes.config.list_kube_config_contexts(kubeConfigPath)
                 # acceptActive = await self.ui.prompt_k8s_active_context(kubeConfigPath, active_context['name'], active_context['context']['cluster'])
 
@@ -108,7 +108,7 @@ class ImbKubernetes:
         all_tgt_ns_services = core_client.list_namespaced_service(namespace=tgtNamespace)
         tgtServices = [s for s in all_tgt_ns_services.items if s.spec.selector and all(( k in self.depLabels and self.depLabels[k] == v for k, v in s.spec.selector.items()))]
         for s in tgtServices:
-            self.services[s.metadata.name] = s
+            self.services.append(s)
             # Dump service manifest(s)
             raw_serv = core_client.read_namespaced_service(namespace=tgtNamespace, name=s.metadata.name, _preload_content=False)
             serv_obj = json.loads(raw_serv.data)
@@ -129,7 +129,7 @@ class ImbKubernetes:
             for s in tgtServices
         ))]
         for i in tgtIngresses:
-            self.ingresses[i.metadata.name] = i
+            self.ingresses.append(i)
             # Dump manifest(s)
             raw_ing = exts_client.read_namespaced_ingress(namespace=tgtNamespace, name=i.metadata.name, _preload_content=False)
             ing_obj = json.loads(raw_ing.data)
