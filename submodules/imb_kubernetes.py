@@ -10,7 +10,8 @@ class ImbKubernetes:
         self.ui = ui
         self.prometheusEndpoint = ''
         self.depLabels = {}
-        self.servIngLabels = {}
+        self.services = {}
+        self.ingresses = {}
 
     async def run(self):
         Path('./app-manifests').mkdir(exist_ok=True)
@@ -37,6 +38,8 @@ class ImbKubernetes:
         # init client with desired kubeconfig and context
         kubernetes.config.load_kube_config(config_file=kubeConfigPath, context=tgtContext['name'])
         core_client = kubernetes.client.CoreV1Api()
+        apps_client = kubernetes.client.AppsV1Api()
+        exts_client = kubernetes.client.ExtensionsV1beta1Api()
 
         # Get namespaces, prompt if multiple
         namespaces = [n.metadata.name for n in core_client.list_namespace().items]
@@ -48,7 +51,6 @@ class ImbKubernetes:
         self.servoConfig['namespace'] = tgtNamespace
 
         # Get deployments, prompt if multiple
-        apps_client = kubernetes.client.AppsV1Api()
         deployments = apps_client.list_namespaced_deployment(namespace=tgtNamespace).items
         if len(deployments) < 1:
             raise Exception('Specified context and namespace contained no deployments')
@@ -99,15 +101,14 @@ class ImbKubernetes:
             }
             self.servoConfig['application']['components']['{}/{}'.format(tgtDeploymentName, c.name)] = {'settings': settings}
 
-        # Discover services and ingresses based deployment selector labels
+        # Discover services based on deployment selector labels
         self.depLabels = tgtDeployment.spec.selector.match_labels
         if not self.depLabels:
             raise Exception('Target deployment has no matchLabels selector')
         all_tgt_ns_services = core_client.list_namespaced_service(namespace=tgtNamespace)
         tgtServices = [s for s in all_tgt_ns_services.items if s.spec.selector and all(( k in self.depLabels and self.depLabels[k] == v for k, v in s.spec.selector.items()))]
         for s in tgtServices:
-            # Append to service labels
-            self.servIngLabels[s.metadata.name] = s.metadata.labels
+            self.services[s.metadata.name] = s
             # Dump service manifest(s)
             raw_serv = core_client.read_namespaced_service(namespace=tgtNamespace, name=s.metadata.name, _preload_content=False)
             serv_obj = json.loads(raw_serv.data)
@@ -115,8 +116,26 @@ class ImbKubernetes:
             with open('app-manifests/{}-servmanifest.yaml'.format(s.metadata.name), 'w') as out_file:
                 yaml.dump(serv_obj, out_file, default_flow_style=False)
 
-        # TODO expose tgtServices to loadgen
-        # TODO tgtIngresses = []
+        # Discover ingresses based on services
+        all_tgt_ns_ingresses = exts_client.list_namespaced_ingress(namespace=tgtNamespace)
+        tgtIngresses = [i for i in all_tgt_ns_ingresses.items if any((
+            (i.spec.backend and i.spec.backend.service_name == s.metadata.name) # Matches default backend
+            or (i.spec.rules and any(( # Matches any of the rules' paths' backends
+                    r.http.paths and any((
+                        p.backend and p.backend.service_name == s.metadata.name 
+                    for p in r.http.paths))
+                for r in i.spec.rules))
+            )  
+            for s in tgtServices
+        ))]
+        for i in tgtIngresses:
+            self.ingresses[i.metadata.name] = i
+            # Dump manifest(s)
+            raw_ing = exts_client.read_namespaced_ingress(namespace=tgtNamespace, name=i.metadata.name, _preload_content=False)
+            ing_obj = json.loads(raw_ing.data)
+            ing_obj.pop('status', None)
+            with open('app-manifests/{}-ingrmanifest.yaml'.format(i.metadata.name), 'w') as out_file:
+                yaml.dump(ing_obj, out_file, default_flow_style=False)
         
         # List services in all namespaces, check for prometheus
         all_ns_services = core_client.list_service_for_all_namespaces()

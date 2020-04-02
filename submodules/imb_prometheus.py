@@ -49,13 +49,13 @@ class ImbPrometheus:
                 self.servoConfig['metrics'][met_name]['unit'] = unit
 
         # Get Service metrics
-        if len(k8sImb.servIngLabels) > 1:
-            key_list = list(k8sImb.servIngLabels.keys())
-            serv_options = [ '{} - {}'.format(k, k8sImb.servIngLabels[k]) for k in key_list ]
+        if len(k8sImb.services) > 1:
+            key_list = list(k8sImb.services.keys())
+            serv_options = [ '{} - {}'.format(k, k8sImb.services[k].metadata.labels) for k in key_list ]
             desired_service_index = await self.ui.prompt_radio_list(title='Select K8s Service/Ingress to retrieve metrics for', header='Name - Labels:', values=serv_options)
-            desired_service_labels = k8sImb.servIngLabels[key_list[desired_service_index]]
+            desired_service_labels = k8sImb.services[key_list[desired_service_index]].metadata.labels
         else:
-            desired_service_labels = k8sImb.servIngLabels[list(k8sImb.servIngLabels.keys())[0]]
+            desired_service_labels = k8sImb.services[list(k8sImb.services.keys())[0]].metadata.labels
 
         query_labels = [ '{}="{}"'.format(k, v) for k, v in desired_service_labels.items() ]
         get_metrics_query_text = 'sum by(__name__)({{ {} }})'.format(','.join(query_labels))

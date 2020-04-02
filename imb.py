@@ -7,6 +7,7 @@ import yaml
 from imb_tui import ImbTui
 from submodules.imb_kubernetes import ImbKubernetes
 from submodules.imb_prometheus import ImbPrometheus
+from submodules.imb_vegeta import ImbVegeta
 
 # Allow yaml sub-document to be embedded as multi-line string when needed
 class multiline_str(str): pass
@@ -136,11 +137,16 @@ class Imb:
                 await promImb.run(k8sImb)
                 servoConfig['prom'] = promImb.servoConfig
 
+            # Run imb vegeta as default load gen for now
+            vegImb = ImbVegeta(self.ui)
+            await vegImb.run(k8sImb)
+            servoConfig['vegeta'] = vegImb.servoConfig
+
             # Generate servo deployment manifest
             Path('./servo-manifests').mkdir(exist_ok=True)
 
             # TODO: logic to actually recommend a servo image based on discovery
-            recommended_servo_image = 'opsani/servo-k8s-prom-hey:latest'
+            recommended_servo_image = 'opsani/servo-k8s-prom-vegeta:latest'
             recommended_servo_image, opsani_account, app_name = await self.ui.prompt_text_three_input(
                 title='Servo Info',
                 prompt1='The following Servo image has been selected. Edit below to override with a different image',
@@ -161,13 +167,12 @@ class Imb:
                 }
             ]
             with open('servo-manifests/opsani-servo-deployment.yaml', 'w') as out_file:
-                yaml.dump(servo_deployment, out_file, default_flow_style=False, sort_keys=False)
-
+                yaml.dump(servo_deployment, out_file, default_flow_style=False, sort_keys=False, width=1000)
 
             # Generate servo configmap (embed config.yaml document with multiline representer)
-            servo_configmap['data']['config.yaml'] = multiline_str(yaml.dump(servoConfig, default_flow_style=False))
+            servo_configmap['data']['config.yaml'] = multiline_str(yaml.dump(servoConfig, default_flow_style=False, width=1000))
             with open('servo-manifests/opsani-servo-configmap.yaml', 'w') as out_file:
-                yaml.dump(servo_configmap, out_file, default_flow_style=False, sort_keys=False)
+                yaml.dump(servo_configmap, out_file, default_flow_style=False, sort_keys=False, width=1000)
 
             await self.ui.stop_ui() # Shut down UI when finished
 
