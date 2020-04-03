@@ -114,6 +114,8 @@ class Imb:
             ))
         except asyncio.CancelledError:
             pass # UI exit handler cancels all tasks other than itself. Catch cancellation here for graceful exit
+        else:
+            print('Discovery complete. Run "kubectl apply -f servo-manifests/" to launch a Servo deployment')
         
         loop.close()
 
@@ -122,9 +124,20 @@ class Imb:
             await self.ui.init_done.wait() # wait for UI to be ready before doing anything with it
 
             servoConfig = {}
+            ocoOverride = {
+                'adjustment': { 'control': {} },
+                'measurement': { 'control': { 
+                    'load': {},
+                    'warmup': 0,
+                    'duration': 0,
+                    'past': 60
+                } },
+                'optimization' : {}
+            }
+
             # Run k8s imb by default for now
             k8sImb = ImbKubernetes(self.ui)
-            await k8sImb.run()
+            await k8sImb.run(ocoOverride=ocoOverride)
             servoConfig['k8s'] = k8sImb.servoConfig
             
             # Run prometheus discovery
@@ -134,12 +147,12 @@ class Imb:
 
             if discoverProm:
                 promImb = ImbPrometheus(self.ui)
-                await promImb.run(k8sImb)
+                await promImb.run(k8sImb=k8sImb, ocoOverride=ocoOverride)
                 servoConfig['prom'] = promImb.servoConfig
 
             # Run imb vegeta as default load gen for now
             vegImb = ImbVegeta(self.ui)
-            await vegImb.run(k8sImb)
+            await vegImb.run( k8sImb=k8sImb, ocoOverride=ocoOverride)
             servoConfig['vegeta'] = vegImb.servoConfig
 
             # Generate servo deployment manifest
@@ -174,6 +187,9 @@ class Imb:
             servo_configmap['data']['config.yaml'] = multiline_str(yaml.dump(servoConfig, default_flow_style=False, width=1000))
             with open('servo-manifests/opsani-servo-configmap.yaml', 'w') as out_file:
                 yaml.dump(servo_configmap, out_file, default_flow_style=False, sort_keys=False, width=1000)
+
+            with open('override.yaml', 'w') as out_file:
+                yaml.dump(ocoOverride, out_file, sort_keys=False, width=1000)
 
             await self.ui.stop_ui() # Shut down UI when finished
 

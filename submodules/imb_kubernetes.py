@@ -13,7 +13,7 @@ class ImbKubernetes:
         self.services = []
         self.ingresses = []
 
-    async def run(self):
+    async def run(self, ocoOverride):
         Path('./app-manifests').mkdir(exist_ok=True)
         self.servoConfig = {'application': {'components': {}}}
         kubeConfigPath = kubernetes.config.kube_config.KUBE_CONFIG_DEFAULT_LOCATION

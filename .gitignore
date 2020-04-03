@@ -1,6 +1,7 @@
 __pycache__
 .vscode/settings.json
 
+/override.yaml
 app-manifests/*
 servo-manifests/opsani-servo-configmap.yaml
 servo-manifests/opsani-servo-deployment.yaml

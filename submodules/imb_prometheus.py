@@ -7,7 +7,7 @@ class ImbPrometheus:
         self.ui = ui
         self.servoConfig = { 'metrics': {} }
 
-    async def run(self, k8sImb):
+    async def run(self, k8sImb, ocoOverride):
         # prompt for endpoint
         config_endpoint, prom_endpoint = await self.ui.prompt_text_input(
             title='Prometheus Endpoint',
@@ -88,3 +88,8 @@ class ImbPrometheus:
             self.servoConfig['metrics'][met_name] = { 'query': query_text }
             if unit:
                 self.servoConfig['metrics'][met_name]['unit'] = unit
+
+        metric_names = list(self.servoConfig['metrics'].keys())
+        if metric_names:
+            desired_index = await self.ui.prompt_radio_list(title='Select Performance Metric', header='Metric Name:', values=metric_names)
+            ocoOverride['optimization']['perf'] = "metrics['{}']".format(metric_names[desired_index])

@@ -1,11 +1,12 @@
-
+from datetime import timedelta
+import re
 
 class ImbVegeta:
     def __init__(self, ui):
         self.ui = ui
         self.servoConfig = {}
 
-    async def run(self, k8sImb):
+    async def run(self, k8sImb, ocoOverride):
         app_load_endpoints = []
 
         for serv in k8sImb.services:
@@ -56,3 +57,14 @@ class ImbVegeta:
             'workers': int(load_workers),
             'max-workers': int(load_max_workers)
         })
+
+        ocoOverride['measurement']['control']['duration'] = _convert_to_seconds(load_duration)
+
+
+# https://stackoverflow.com/a/57846984
+UNITS = {'s':'seconds', 'm':'minutes', 'h':'hours', 'd':'days', 'w':'weeks'}
+def _convert_to_seconds(s):
+    return int(timedelta(**{
+        UNITS.get(m.group('unit').lower(), 'seconds'): int(m.group('val'))
+        for m in re.finditer(r'(?P<val>\d+)(?P<unit>[smhdw]?)', s, flags=re.I)
+    }).total_seconds())
