@@ -35,27 +35,27 @@ class ImbVegeta:
                 url = 'http://{}:{}'.format(ing_hostname, ing.spec.backend.service_port)
                 app_load_endpoints.append({'url': url, 'host': None})
 
-        desired_index = await self.ui.prompt_radio_list(title='Select Vegeta Load Gen Endpoint', header='URL:', values=[ep['url'] for ep in app_load_endpoints])
-        desired_endpoint = app_load_endpoints[desired_index]
+        if len(app_load_endpoints) == 1:
+            desired_endpoint = app_load_endpoints[0]
+        else:
+            desired_index = await self.ui.prompt_radio_list(title='Select Vegeta Load Gen Endpoint', header='URL:', values=[ep['url'] for ep in app_load_endpoints])
+            desired_endpoint = app_load_endpoints[desired_index]
 
         self.servoConfig['target'] = 'GET {}'.format(desired_endpoint['url'])
         if desired_endpoint.get('host'):
             self.servoConfig['host'] = desired_endpoint['host'] # NOTE: servo-vegeta does not currently implement host http request header
 
-        load_rate, load_workers, load_max_workers, load_duration = await self.ui.prompt_text_input(
+        load_duration = await self.ui.prompt_text_input(
             title='Vegeta Load Generation Configuration',
             prompts=[
-                {'prompt': 'Requests per minute', 'initial_text': '3000/m'},
-                {'prompt': 'Number of workers', 'initial_text': '50'},
-                {'prompt': 'Maximum number of workers', 'initial_text': '500'},
                 {'prompt': 'Duration', 'initial_text': '5m'}
             ]
         )
         self.servoConfig.update({
-            'rate': load_rate,
+            'rate': '3000/m',
             'duration': load_duration,
-            'workers': int(load_workers),
-            'max-workers': int(load_max_workers)
+            'workers': 50,
+            'max-workers': 500
         })
 
         ocoOverride['measurement']['control']['duration'] = _convert_to_seconds(load_duration)
