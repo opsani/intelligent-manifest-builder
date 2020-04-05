@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Invoking imb.py directly prevents importing of modules with 'imb.' package name prefix
 # This entrypoint serves as a workaround
 from imb.imb import imb

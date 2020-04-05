@@ -215,7 +215,7 @@ version = "0.57.0"
 six = "*"
 
 [metadata]
-content-hash = "5f95b78e6c579a5521bd1f601c5ebc87fc778fa4083abbfce7aad87f98f42af5"
+content-hash = "1184dd958baa9ebdcecb9801532fa7e63511b56d9e9fd0a2f88c67725914a2a9"
 python-versions = "^3.6.1"
 
 [metadata.files]

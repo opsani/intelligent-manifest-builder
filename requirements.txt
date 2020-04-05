@@ -1,4 +1,0 @@
-kubernetes
-prompt-toolkit
-pyyaml
-requests
