@@ -22,6 +22,13 @@ Requires python >= 3.6.1
 - pyyaml: `pip install pyyaml`
 - (recommended) minikube: <https://kubernetes.io/docs/tasks/tools/install-minikube/>
   - See sandbox directory for test deployments
+  
+### Installing via Poetry
+
+```console
+$ poetry install
+$ poetry run ./imb.py
+```
 
 ## Run as script without installation
 
@@ -33,3 +40,10 @@ Requires python >= 3.6.1
   - File contains deployment manifest for replicating the target deployment
 - Dumps a `config.yaml` file containing settings for each selected deployment/container
   - contains settings replicas, cpu, and mem with min/max set to current cluster values and step of 0
+
+## Running Under Docker
+
+```console
+$ docker build -t imb .
+$ docker run -i -v ~/.kube:/root/.kube imb
+```
