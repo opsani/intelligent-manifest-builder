@@ -5,6 +5,8 @@ from pathlib import Path
 import re
 import yaml
 
+EXCLUDED_NAMESPACES = ['kube-node-lease', 'kube-public', 'kube-system']
+
 class ImbKubernetes:
     def __init__(self, ui):
         self.ui = ui
@@ -42,7 +44,7 @@ class ImbKubernetes:
         exts_client = kubernetes.client.ExtensionsV1beta1Api()
 
         # Get namespaces, prompt if multiple
-        namespaces = [n.metadata.name for n in core_client.list_namespace().items]
+        namespaces = [n.metadata.name for n in core_client.list_namespace().items if n.metadata.name not in EXCLUDED_NAMESPACES]
         if len(namespaces) == 1:
             tgtNamespace = namespaces[0]
         else:
