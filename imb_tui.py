@@ -63,7 +63,7 @@ class ImbTui:
         yn_dialog = Dialog(
             title='Use Active Context?',
             body=Window(
-                FormattedTextControl('Use the currently active context values?'), 
+                FormattedTextControl('Is this the context of the application to be optimized?'), 
                 align=WindowAlign.CENTER,
                 height=1,
             ),

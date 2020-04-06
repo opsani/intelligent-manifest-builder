@@ -33,7 +33,7 @@ class ImbKubernetes:
                 # acceptActive = await self.ui.prompt_k8s_active_context(kubeConfigPath, active_context['name'], active_context['context']['cluster'])
 
             radioValues = ['{} - {}'.format(c['name'], c['context']['cluster']) for c in contexts]
-            desiredIndex = await self.ui.prompt_radio_list(values=radioValues, title='Select Desired Context', header='Context - Cluster:')
+            desiredIndex = await self.ui.prompt_radio_list(values=radioValues, title='Select Context of App to be Optimized', header='Context - Cluster:')
 
             tgtContext = contexts[desiredIndex]
 
@@ -48,7 +48,7 @@ class ImbKubernetes:
         if len(namespaces) == 1:
             tgtNamespace = namespaces[0]
         else:
-            desiredIndex = await self.ui.prompt_radio_list(values=namespaces, title='Select Desired Namespace', header='Namespace:')
+            desiredIndex = await self.ui.prompt_radio_list(values=namespaces, title='Select Namespace of App to be Optimized', header='Namespace:')
             tgtNamespace = namespaces[desiredIndex]
         self.servoConfig['namespace'] = tgtNamespace
 
@@ -60,7 +60,7 @@ class ImbKubernetes:
             tgtDeployment, tgtDeploymentName = deployments[0], deployments[0].metadata.name
         else:
             dep_names = [d.metadata.name for d in deployments]
-            desiredIndex = await self.ui.prompt_radio_list(values=dep_names, title='Select Desired Deployment', header='Deployment:')
+            desiredIndex = await self.ui.prompt_radio_list(values=dep_names, title='Select Deployment to be Optimized', header='Deployment:')
             tgtDeployment, tgtDeploymentName = deployments[desiredIndex], dep_names[desiredIndex]
 
         # Get deployment as json (instead of client model), dump to yaml file
@@ -78,9 +78,10 @@ class ImbKubernetes:
             tgtContainers = [containers[0]]
         else:
             cont_names = [c.name for c in containers]
-            desiredIndexes = await self.ui.prompt_check_list(values=cont_names, title='Select Desired Container(s)', header='Container:')
+            desiredIndexes = await self.ui.prompt_check_list(values=cont_names, title='Select Container(s) to be Optimized', header='Container:')
             tgtContainers = [containers[di] for di in desiredIndexes]
         
+        # TODO: replicas can only be specified once per deployment
         for c in tgtContainers:
             cpu, mem = ('100m', '128Mi') if c.resources.limits is None else (c.resources.limits['cpu'], c.resources.limits['memory'])
             cpu = float(re.search(r'\d+', cpu).group()) / 1000

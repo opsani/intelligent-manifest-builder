@@ -38,7 +38,10 @@ class ImbVegeta:
         if len(app_load_endpoints) == 1:
             desired_endpoint = app_load_endpoints[0]
         else:
-            desired_index = await self.ui.prompt_radio_list(title='Select Vegeta Load Gen Endpoint', header='URL:', values=[ep['url'] for ep in app_load_endpoints])
+            desired_index = await self.ui.prompt_radio_list(
+                title='Select Endpoint for Vegeta Load Generation', 
+                header='URL:', 
+                values=[ep['url'] for ep in app_load_endpoints])
             desired_endpoint = app_load_endpoints[desired_index]
 
         self.servoConfig['target'] = 'GET {}'.format(desired_endpoint['url'])
@@ -48,7 +51,7 @@ class ImbVegeta:
         load_duration = await self.ui.prompt_text_input(
             title='Vegeta Load Generation Configuration',
             prompts=[
-                {'prompt': 'Duration', 'initial_text': '5m'}
+                {'prompt': 'Duration of load generation', 'initial_text': '5m'}
             ]
         )
         self.servoConfig.update({

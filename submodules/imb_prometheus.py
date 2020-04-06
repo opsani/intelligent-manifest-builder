@@ -54,7 +54,10 @@ class ImbPrometheus:
         matching_metrics = query_resp.json()['data']['result']
         matching_metrics_names = [ m['metric']['__name__'] for m in matching_metrics ]
         matching_metrics_names.sort()
-        desired_metric_indexes = await self.ui.prompt_check_list(values=matching_metrics_names, title='Select Desired Deployment Metrics', header='Metric __name__:')
+        desired_metric_indexes = await self.ui.prompt_check_list(
+            values=matching_metrics_names, 
+            title='Select Deployment Metrics for Optimization Measurement', 
+            header='Metric __name__:')
         desired_metrics = [ matching_metrics_names[i] for i in desired_metric_indexes ]
 
         # Format desired metrics into queries for servo config
@@ -80,7 +83,7 @@ class ImbPrometheus:
                 + [{ 'type': 'Ingress', 'name': i.metadata.name, 'labels': i.metadata.labels } for i in k8sImb.ingresses ]
 
             desired_index = await self.ui.prompt_radio_list(
-                title='Select K8s Service/Ingress to retrieve metrics for',
+                title='Select K8s Service/Ingress to Measure for Optimization',
                 header='Type - Name - Labels:',
                 values=[ '{type} - {name} - {labels}'.format(**opt) for opt in si_options ]
             )
@@ -96,14 +99,17 @@ class ImbPrometheus:
         matching_metrics_names = [ m['metric']['__name__'] for m in matching_metrics ]
         matching_metrics_names.sort()
 
-        desired_metric_indexes = await self.ui.prompt_check_list(values=matching_metrics_names, title='Select Desired Service/Ingress Metrics', header='Metric __name__:')
+        desired_metric_indexes = await self.ui.prompt_check_list(
+            values=matching_metrics_names, 
+            title='Select Service/Ingress Metrics for Optimization Measurement', 
+            header='Metric __name__:')
         desired_metrics = [ matching_metrics_names[i] for i in desired_metric_indexes ]
 
         num_metrics = len(desired_metrics)
         for i, m in enumerate(desired_metrics):
             query_text = '{}{{{}}}[1m]'.format(m, ','.join(query_labels))
             met_name, query_text, unit = await self.ui.prompt_text_input(
-                title='Service Metrics Config {}/{}'.format(i+1, num_metrics),
+                title='Service/Ingress Metrics Config {}/{}'.format(i+1, num_metrics),
                 prompts=[
                     {'prompt': 'Enter/Edit the name of the metric to be used by servo:', 'initial_text': m},
                     {'prompt': 'Edit Metric Query:', 'initial_text': query_text},
