@@ -141,7 +141,7 @@ class Imb:
             servoConfig['k8s'] = k8sImb.servoConfig
             
             # Run prometheus discovery
-            discoverProm = bool(k8sImb.prometheusEndpoint)
+            discoverProm = bool(k8sImb.prometheusService)
             if not discoverProm:
                 discoverProm = await self.ui.promt_yn(title='Configure Prometheus Metrics?', prompt='Is there a prometheus deployment to discover metrics from?')
 

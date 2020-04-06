@@ -8,7 +8,7 @@ import yaml
 class ImbKubernetes:
     def __init__(self, ui):
         self.ui = ui
-        self.prometheusEndpoint = ''
+        self.prometheusService = None
         self.depLabels = {}
         self.services = []
         self.ingresses = []
@@ -141,10 +141,6 @@ class ImbKubernetes:
         all_ns_services = core_client.list_service_for_all_namespaces()
         for serv in all_ns_services.items:
             if serv.metadata.name == 'prometheus':
-                self.prometheusEndpoint = 'http://{}.{}.svc:{}'.format(
-                    serv.metadata.name,
-                    serv.metadata.namespace,
-                    serv.spec.ports[0].port
-                )
+                self.prometheusService = serv
                 break
         

@@ -1,6 +1,7 @@
+import atexit
 import json
 import requests
-
+import subprocess
 
 class ImbPrometheus:
     def __init__(self, ui):
@@ -8,12 +9,37 @@ class ImbPrometheus:
         self.servoConfig = { 'metrics': {} }
 
     async def run(self, k8sImb, ocoOverride):
+        # Check if endpoint is accessible, port forward if its not
+        prometheus_endpoint = 'http://{}.{}.svc:{}'.format(
+            k8sImb.prometheusService.metadata.name,
+            k8sImb.prometheusService.metadata.namespace,
+            k8sImb.prometheusService.spec.ports[0].port
+        )
+        local_endpoint = prometheus_endpoint
+        port_forward_proc = None
+        try:
+            requests.get(local_endpoint)
+        except requests.exceptions.ConnectionError:
+            # Have to use subprocess because kubernetes-client/python does not support port forwarding of services:
+            #   https://github.com/kubernetes-client/python/issues/166#issuecomment-504216584
+            port_forward_proc = subprocess.Popen(
+                stdout=subprocess.DEVNULL,
+                args=['kubectl', 'port-forward', 
+                '-n', k8sImb.prometheusService.metadata.namespace, 
+                'svc/{}'.format(k8sImb.prometheusService.metadata.name),
+                str(k8sImb.prometheusService.spec.ports[0].port)])
+            def kill_proc():
+                if port_forward_proc.poll() is None:
+                    port_forward_proc.kill()
+            atexit.register(kill_proc)
+            local_endpoint = 'http://localhost:{}'.format(k8sImb.prometheusService.spec.ports[0].port)
+
         # prompt for endpoint
         config_endpoint, prom_endpoint = await self.ui.prompt_text_input(
             title='Prometheus Endpoint',
             prompts=[
-                {'prompt': 'Enter/Edit the prometheus endpoint for Servo to use', 'initial_text': k8sImb.prometheusEndpoint},
-                {'prompt': 'Enter/Edit the local prometheus endpoint (for metrics discovery only)', 'initial_text': k8sImb.prometheusEndpoint}
+                {'prompt': 'Enter/Edit the prometheus endpoint for Servo to use', 'initial_text': prometheus_endpoint},
+                {'prompt': 'Enter/Edit the local prometheus endpoint (for metrics discovery only)', 'initial_text': local_endpoint}
             ]
         )
         self.servoConfig['prometheus_endpoint'] = config_endpoint
@@ -93,3 +119,6 @@ class ImbPrometheus:
         if metric_names:
             desired_index = await self.ui.prompt_radio_list(title='Select Performance Metric', header='Metric Name:', values=metric_names)
             ocoOverride['optimization']['perf'] = "metrics['{}']".format(metric_names[desired_index])
+
+        if port_forward_proc is not None and port_forward_proc.poll() is None:
+            port_forward_proc.kill()
