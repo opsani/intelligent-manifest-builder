@@ -15,7 +15,7 @@ class ImbKubernetes:
         self.services = []
         self.ingresses = []
 
-    async def run(self, ocoOverride):
+    async def run(self, imbConfig, ocoOverride):
         Path('./app-manifests').mkdir(exist_ok=True)
         self.servoConfig = {'application': {'components': {}}}
         kubeConfigPath = kubernetes.config.kube_config.KUBE_CONFIG_DEFAULT_LOCATION
@@ -47,6 +47,10 @@ class ImbKubernetes:
         namespaces = [n.metadata.name for n in core_client.list_namespace().items if n.metadata.name not in EXCLUDED_NAMESPACES]
         if len(namespaces) == 1:
             tgtNamespace = namespaces[0]
+        elif imbConfig.get('app') and imbConfig['app'] in namespaces:
+            tgtNamespace = imbConfig['app']
+        elif imbConfig.get('account') and imbConfig['account'] in namespaces:
+            tgtNamespace = imbConfig['account']
         else:
             desiredIndex = await self.ui.prompt_radio_list(values=namespaces, title='Select Namespace of App to be Optimized', header='Namespace:')
             tgtNamespace = namespaces[desiredIndex]
@@ -60,8 +64,13 @@ class ImbKubernetes:
             tgtDeployment, tgtDeploymentName = deployments[0], deployments[0].metadata.name
         else:
             dep_names = [d.metadata.name for d in deployments]
-            desiredIndex = await self.ui.prompt_radio_list(values=dep_names, title='Select Deployment to be Optimized', header='Deployment:')
-            tgtDeployment, tgtDeploymentName = deployments[desiredIndex], dep_names[desiredIndex]
+            if imbConfig.get('app') and imbConfig['app'] in dep_names:
+                tgtDeployment, tgtDeploymentName = deployments[dep_names.index(imbConfig['app'])], imbConfig['app']
+            elif imbConfig.get('account') and imbConfig['account'] in dep_names:
+                tgtDeployment, tgtDeploymentName = deployments[dep_names.index(imbConfig['account'])], imbConfig['account']
+            else:
+                desiredIndex = await self.ui.prompt_radio_list(values=dep_names, title='Select Deployment to be Optimized', header='Deployment:')
+                tgtDeployment, tgtDeploymentName = deployments[desiredIndex], dep_names[desiredIndex]
 
         # Get deployment as json (instead of client model), dump to yaml file
         raw_dep_resp = apps_client.read_namespaced_deployment(name=tgtDeploymentName, namespace=tgtNamespace, _preload_content=False)
@@ -147,3 +156,20 @@ class ImbKubernetes:
                 self.prometheusService = serv
                 break
         
+        # Create secret for optune auth token if included in config and not yet defined
+        try:
+            sec = core_client.read_namespaced_secret(namespace=tgtNamespace, name='optune-auth')
+        except kubernetes.client.rest.ApiException as ae:
+            if ae.status == 404:
+                sec = None
+            else:
+                raise
+
+        if imbConfig.get('token') and sec is None:
+            s_body = kubernetes.client.V1Secret(
+                api_version="v1",
+                string_data={'token': imbConfig['token']},
+                kind="Secret",
+                metadata={'name': 'optune-auth'}
+            )
+            core_client.create_namespaced_secret(namespace=tgtNamespace, body=s_body)

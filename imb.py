@@ -134,10 +134,15 @@ class Imb:
                 } },
                 'optimization' : {}
             }
+            try:
+                with open('oimb.yaml', 'r') as in_file:
+                    imbConfig = yaml.safe_load(in_file)['oimb']
+            except FileNotFoundError:
+                imbConfig = {}
 
             # Run k8s imb by default for now
             k8sImb = ImbKubernetes(self.ui)
-            await k8sImb.run(ocoOverride=ocoOverride)
+            await k8sImb.run(imbConfig=imbConfig, ocoOverride=ocoOverride)
             servoConfig['k8s'] = k8sImb.servoConfig
             
             # Run prometheus discovery
@@ -150,24 +155,35 @@ class Imb:
                 await promImb.run(k8sImb=k8sImb, ocoOverride=ocoOverride)
                 servoConfig['prom'] = promImb.servoConfig
 
-            # Run imb vegeta as default load gen for now
-            vegImb = ImbVegeta(self.ui)
-            await vegImb.run( k8sImb=k8sImb, ocoOverride=ocoOverride)
-            servoConfig['vegeta'] = vegImb.servoConfig
+            if imbConfig.get('mode') == 'saturation':
+                # Run imb vegeta as default load gen for now
+                vegImb = ImbVegeta(self.ui)
+                await vegImb.run( k8sImb=k8sImb, ocoOverride=ocoOverride)
+                servoConfig['vegeta'] = vegImb.servoConfig
 
             # Generate servo deployment manifest
             Path('./servo-manifests').mkdir(exist_ok=True)
 
             # TODO: logic to actually recommend a servo image based on discovery
             recommended_servo_image = 'opsani/servo-k8s-prom-vegeta:latest'
-            recommended_servo_image, opsani_account, app_name = await self.ui.prompt_text_input(
-                title='Servo Info',
-                prompts=[
-                    {'prompt': 'The following Servo image has been selected. Edit below to override with a different image', 'initial_text': recommended_servo_image},
-                    {'prompt': 'Please enter the name of your Optune account'},
-                    {'prompt': 'Please enter the name of the application to be optimized as it appears in Optune'}
-                ]
-            )
+
+            if imbConfig.get('app') and imbConfig.get('account'):
+                opsani_account, app_name = imbConfig['app'], imbConfig['account']
+                recommended_servo_image = await self.ui.prompt_text_input(
+                    title='Servo Info',
+                    prompts=[
+                        {'prompt': 'The following Servo image has been selected. Edit below to override with a different image', 'initial_text': recommended_servo_image}
+                    ]
+                )
+            else:
+                recommended_servo_image, opsani_account, app_name = await self.ui.prompt_text_input(
+                    title='Servo Info',
+                    prompts=[
+                        {'prompt': 'The following Servo image has been selected. Edit below to override with a different image', 'initial_text': recommended_servo_image},
+                        {'prompt': 'Please enter the name of your Optune account'},
+                        {'prompt': 'Please enter the name of the application to be optimized as it appears in Optune'}
+                    ]
+                )
 
             servo_deployment['spec']['template']['spec']['containers'][0]['image'] = recommended_servo_image
             servo_deployment['spec']['template']['spec']['containers'][0]['args'] = [
