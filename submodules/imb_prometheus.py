@@ -3,6 +3,13 @@ import json
 import requests
 import subprocess
 
+# Maps metric name to suggested config/perf name, query template and unit
+KNOWN_METRICS = {
+    'envoy_cluster_upstream_rq_total': ('main_request_rate', 'sum(rate({}[1m]))', 'rpm'),
+    # 'envoy_cluster_external_upstream_rq_time_bucket': ('main_p90_time', 'histogram_quantile(0.9,sum(rate({}[1m])) by (envoy_cluster_name, le))', 'ms'),
+    'api_requests_total': ('main_request_rate', 'sum(rate({}[1m]))', 'rpm'),
+}
+
 class ImbPrometheus:
     def __init__(self, ui):
         self.ui = ui
@@ -53,78 +60,94 @@ class ImbPrometheus:
         # Format data and prompt
         matching_metrics = query_resp.json()['data']['result']
         matching_metrics_names = [ m['metric']['__name__'] for m in matching_metrics ]
-        matching_metrics_names.sort()
-        desired_metric_indexes = await self.ui.prompt_check_list(
-            values=matching_metrics_names, 
-            title='Select Deployment Metrics for Optimization Measurement', 
-            header='Metric __name__:')
-        desired_metrics = [ matching_metrics_names[i] for i in desired_metric_indexes ]
+        matching_known_metrics = [m for m in matching_metrics_names if m in KNOWN_METRICS]
+
+        if len(matching_known_metrics) == 1:
+            desired_metrics = matching_known_metrics
+        elif len(matching_known_metrics) > 1:
+            matching_known_metrics.sort()
+            known_metrics_options = ['{} - {}'.format(m, KNOWN_METRICS[m][0]) for m in matching_known_metrics]
+            desired_metric_indexes = await self.ui.prompt_check_list(
+                values=known_metrics_options, 
+                title='Select Deployment Metrics for Optimization Measurement', 
+                header='Metric __name__ - Suggested Perf Name:')
+            desired_metrics = [matching_known_metrics[i] for i in desired_metric_indexes]
+        else:
+            # Filter out non 'request' oriented metrics
+            req_metrics = [m for m in matching_metrics_names if 'request' in m or 'rq' in m]
+            req_metrics.sort()
+            desired_metric_indexes = await self.ui.prompt_check_list(
+                values=req_metrics, 
+                title='Select Deployment Metrics for Optimization Measurement', 
+                header='Metric __name__:')
+            desired_metrics = [ req_metrics[i] for i in desired_metric_indexes ]
 
         # Format desired metrics into queries for servo config
         num_metrics = len(desired_metrics)
         for i, m in enumerate(desired_metrics):
-            query_text = '{}{{{}}}[1m]'.format(m, ','.join(query_labels))
-            met_name, query_text, unit = await self.ui.prompt_text_input(
+            perf_name, query_template, perf_unit = KNOWN_METRICS.get(m, (m, '{}[1m]', ''))
+            query_text = query_template.format('{}{{{}}}'.format(m, ','.join(query_labels)))
+            perf_name, query_text, perf_unit = await self.ui.prompt_text_input(
                 title='Deployment Metrics Config {}/{}'.format(i+1, num_metrics),
                 prompts=[
-                    {'prompt': 'Enter/Edit the name of the metric to be used by servo:', 'initial_text': m},
+                    {'prompt': 'Enter/Edit the name of the metric to be used by servo:', 'initial_text': perf_name},
                     {'prompt': 'Edit Metric Query:', 'initial_text': query_text},
-                    {'prompt': 'Metric Unit:'},
+                    {'prompt': 'Metric Unit:', 'initial_text': perf_unit},
                 ]
             )
 
-            self.servoConfig['metrics'][met_name] = { 'query': query_text }
-            if unit:
-                self.servoConfig['metrics'][met_name]['unit'] = unit
+            self.servoConfig['metrics'][perf_name] = { 'query': query_text }
+            if perf_unit:
+                self.servoConfig['metrics'][perf_name]['unit'] = perf_unit
 
         # Get Service or Ingress metrics
-        if len(k8sImb.services) + len(k8sImb.ingresses) > 1:
-            si_options = [ { 'type': 'Service', 'name': s.metadata.name, 'labels': s.metadata.labels } for s in k8sImb.services ]\
-                + [{ 'type': 'Ingress', 'name': i.metadata.name, 'labels': i.metadata.labels } for i in k8sImb.ingresses ]
+        # if len(k8sImb.services) + len(k8sImb.ingresses) > 1:
+        #     si_options = [ { 'type': 'Service', 'name': s.metadata.name, 'labels': s.metadata.labels } for s in k8sImb.services ]\
+        #         + [{ 'type': 'Ingress', 'name': i.metadata.name, 'labels': i.metadata.labels } for i in k8sImb.ingresses ]
 
-            desired_index = await self.ui.prompt_radio_list(
-                title='Select K8s Service/Ingress to Measure for Optimization',
-                header='Type - Name - Labels:',
-                values=[ '{type} - {name} - {labels}'.format(**opt) for opt in si_options ]
-            )
-            desired_si_labels = si_options[desired_index]['labels']
-        else:
-            desired_si_labels = k8sImb.services[0].metadata.labels if k8sImb.services else k8sImb.ingresses[0].metadata.labels
+        #     desired_index = await self.ui.prompt_radio_list(
+        #         title='Select K8s Service/Ingress to Measure for Optimization',
+        #         header='Type - Name - Labels:',
+        #         values=[ '{type} - {name} - {labels}'.format(**opt) for opt in si_options ]
+        #     )
+        #     desired_si_labels = si_options[desired_index]['labels']
+        # else:
+        #     desired_si_labels = k8sImb.services[0].metadata.labels if k8sImb.services else k8sImb.ingresses[0].metadata.labels
 
-        query_labels = [ '{}="{}"'.format(k, v) for k, v in desired_si_labels.items() ]
-        get_metrics_query_text = 'sum by(__name__)({{ {} }})'.format(','.join(query_labels))
-        query_resp = requests.get(url=query_url, params={ 'query': get_metrics_query_text })
+        # query_labels = [ '{}="{}"'.format(k, v) for k, v in desired_si_labels.items() ]
+        # get_metrics_query_text = 'sum by(__name__)({{ {} }})'.format(','.join(query_labels))
+        # query_resp = requests.get(url=query_url, params={ 'query': get_metrics_query_text })
 
-        matching_metrics = query_resp.json()['data']['result']
-        matching_metrics_names = [ m['metric']['__name__'] for m in matching_metrics ]
-        matching_metrics_names.sort()
+        # matching_metrics = query_resp.json()['data']['result']
+        # matching_metrics_names = [ m['metric']['__name__'] for m in matching_metrics ]
+        # matching_metrics_names.sort()
 
-        desired_metric_indexes = await self.ui.prompt_check_list(
-            values=matching_metrics_names, 
-            title='Select Service/Ingress Metrics for Optimization Measurement', 
-            header='Metric __name__:')
-        desired_metrics = [ matching_metrics_names[i] for i in desired_metric_indexes ]
+        # desired_metric_indexes = await self.ui.prompt_check_list(
+        #     values=matching_metrics_names, 
+        #     title='Select Service/Ingress Metrics for Optimization Measurement', 
+        #     header='Metric __name__:')
+        # desired_metrics = [ matching_metrics_names[i] for i in desired_metric_indexes ]
 
-        num_metrics = len(desired_metrics)
-        for i, m in enumerate(desired_metrics):
-            query_text = '{}{{{}}}[1m]'.format(m, ','.join(query_labels))
-            met_name, query_text, unit = await self.ui.prompt_text_input(
-                title='Service/Ingress Metrics Config {}/{}'.format(i+1, num_metrics),
-                prompts=[
-                    {'prompt': 'Enter/Edit the name of the metric to be used by servo:', 'initial_text': m},
-                    {'prompt': 'Edit Metric Query:', 'initial_text': query_text},
-                    {'prompt': 'Metric Unit:'},
-                ]
-            )
+        # num_metrics = len(desired_metrics)
+        # for i, m in enumerate(desired_metrics):
+        #     query_text = '{}{{{}}}[1m]'.format(m, ','.join(query_labels))
+        #     met_name, query_text, unit = await self.ui.prompt_text_input(
+        #         title='Service/Ingress Metrics Config {}/{}'.format(i+1, num_metrics),
+        #         prompts=[
+        #             {'prompt': 'Enter/Edit the name of the metric to be used by servo:', 'initial_text': m},
+        #             {'prompt': 'Edit Metric Query:', 'initial_text': query_text},
+        #             {'prompt': 'Metric Unit:'},
+        #         ]
+        #     )
 
-            self.servoConfig['metrics'][met_name] = { 'query': query_text }
-            if unit:
-                self.servoConfig['metrics'][met_name]['unit'] = unit
+        #     self.servoConfig['metrics'][met_name] = { 'query': query_text }
+        #     if unit:
+        #         self.servoConfig['metrics'][met_name]['unit'] = unit
 
-        metric_names = list(self.servoConfig['metrics'].keys())
-        if metric_names:
-            desired_index = await self.ui.prompt_radio_list(title='Select Performance Metric', header='Metric Name:', values=metric_names)
-            ocoOverride['optimization']['perf'] = "metrics['{}']".format(metric_names[desired_index])
+        # metric_names = list(self.servoConfig['metrics'].keys())
+        # if metric_names:
+        #     desired_index = await self.ui.prompt_radio_list(title='Select Performance Metric', header='Metric Name:', values=metric_names)
+        #     ocoOverride['optimization']['perf'] = "metrics['{}']".format(metric_names[desired_index])
 
         if port_forward_proc is not None and port_forward_proc.poll() is None:
             port_forward_proc.kill()
