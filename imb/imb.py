@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 
 import asyncio
+import os
 from pathlib import Path
 import yaml
 
-from imb_tui import ImbTui
-from submodules.imb_kubernetes import ImbKubernetes
-from submodules.imb_prometheus import ImbPrometheus
-from submodules.imb_vegeta import ImbVegeta
+from imb.imb_tui import ImbTui
+from imb.imb_kubernetes import ImbKubernetes
+from imb.imb_prometheus import ImbPrometheus
+from imb.imb_vegeta import ImbVegeta
 
 # Allow yaml sub-document to be embedded as multi-line string when needed
 class multiline_str(str): pass
@@ -215,7 +216,8 @@ class Imb:
             await self.ui.stop_ui()
             raise
 
+def imb():
+    Imb().run()
 
 if __name__ == "__main__":
-    imb = Imb()
-    imb.run()
+    imb()

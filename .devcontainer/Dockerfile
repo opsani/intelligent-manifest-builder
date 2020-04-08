@@ -88,6 +88,7 @@ RUN apt-get update \
 #     && rm -rf /var/lib/apt/lists/*
 RUN apt-get update && apt-get install -y python3-dev python3-pip \
     && python3 -m pip install -U pip setuptools wheel pylint autopep8 \
+    && update-alternatives --install /usr/bin/python python /usr/bin/python3 1 \
     # Clean up
     && apt-get autoremove -y \
     && apt-get clean -y \
