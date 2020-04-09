@@ -18,27 +18,25 @@ class ImbKubernetes:
     async def run(self, imbConfig, ocoOverride):
         Path('./app-manifests').mkdir(exist_ok=True)
         self.servoConfig = {'application': {'components': {}}}
-        kubeConfigPath = kubernetes.config.kube_config.KUBE_CONFIG_DEFAULT_LOCATION
-        # Get active context, prompt
-        contexts, active_context = kubernetes.config.list_kube_config_contexts() # get active context from default kube config location
-        acceptActive = await self.ui.prompt_k8s_active_context(kubeConfigPath, active_context['name'], active_context['context']['cluster'])
+        self.kubeConfigPath = kubernetes.config.kube_config.KUBE_CONFIG_DEFAULT_LOCATION
+        # Get contexts, prompt
+        contexts, _ = kubernetes.config.list_kube_config_contexts() # get active context from default kube config location
+        radioValues = ['{} - {}'.format(c['name'], c['context']['cluster']) for c in contexts]
+        radioValues.append('Use a different kube config (current kube config path: {})'.format(self.kubeConfigPath))
+        desiredIndex = await self.ui.prompt_radio_list(values=radioValues, title='Select Context of App to be Optimized', header='Context - Cluster:')
 
-        if acceptActive:
-            tgtContext = active_context
-        else:
-            changeConfig = await self.ui.promt_yn('Change Kubeconfig?', 'Would you like to use a kubeconfig from a different location?')
-            if changeConfig:
-                kubeConfigPath = await self.ui.prompt_text_input(title='Enter Kubeconfig Path', prompts=[{'prompt': 'Enter the file path of the desired Kubeconfig'}])
-                contexts, active_context = kubernetes.config.list_kube_config_contexts(kubeConfigPath)
-                # acceptActive = await self.ui.prompt_k8s_active_context(kubeConfigPath, active_context['name'], active_context['context']['cluster'])
+        if desiredIndex == len(radioValues)-1:
+            self.kubeConfigPath = await self.ui.prompt_text_input(title='Enter Kubeconfig Path', prompts=[{'prompt': 'Enter the file path of the desired Kubeconfig', 'initial_text': self.kubeConfigPath }])
 
+            contexts, _ = kubernetes.config.list_kube_config_contexts(self.kubeConfigPath)
             radioValues = ['{} - {}'.format(c['name'], c['context']['cluster']) for c in contexts]
             desiredIndex = await self.ui.prompt_radio_list(values=radioValues, title='Select Context of App to be Optimized', header='Context - Cluster:')
-
-            tgtContext = contexts[desiredIndex]
+            self.context = contexts[desiredIndex]
+        else:
+            self.context = contexts[desiredIndex]
 
         # init client with desired kubeconfig and context
-        kubernetes.config.load_kube_config(config_file=kubeConfigPath, context=tgtContext['name'])
+        kubernetes.config.load_kube_config(config_file=self.kubeConfigPath, context=self.context['name'])
         core_client = kubernetes.client.CoreV1Api()
         apps_client = kubernetes.client.AppsV1Api()
         exts_client = kubernetes.client.ExtensionsV1beta1Api()
