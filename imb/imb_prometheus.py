@@ -1,5 +1,6 @@
 import atexit
 import json
+from os.path import expanduser
 import requests
 import subprocess
 
@@ -32,9 +33,11 @@ class ImbPrometheus:
             port_forward_proc = subprocess.Popen(
                 stdout=subprocess.DEVNULL,
                 args=['kubectl', 'port-forward', 
-                '-n', k8sImb.prometheusService.metadata.namespace, 
-                'svc/{}'.format(k8sImb.prometheusService.metadata.name),
-                str(k8sImb.prometheusService.spec.ports[0].port)])
+                    '--kubeconfig', expanduser(k8sImb.kubeConfigPath),
+                    '--context', k8sImb.context['name'],
+                    '--namespace', k8sImb.prometheusService.metadata.namespace,
+                    'svc/{}'.format(k8sImb.prometheusService.metadata.name),
+                    str(k8sImb.prometheusService.spec.ports[0].port)])
             def kill_proc():
                 if port_forward_proc.poll() is None:
                     port_forward_proc.kill()
