@@ -154,20 +154,21 @@ class ImbKubernetes:
                 self.prometheusService = serv
                 break
         
-        # Create secret for optune auth token if included in config and not yet defined
-        try:
-            sec = core_client.read_namespaced_secret(namespace=tgtNamespace, name='optune-auth')
-        except kubernetes.client.rest.ApiException as ae:
-            if ae.status == 404:
-                sec = None
-            else:
-                raise
+        # TODO: this will likely be a separate method from run() when re-enabled
+        # Create secret for opsani-servo-auth token if included in config and not yet defined
+        # try:
+        #     sec = core_client.read_namespaced_secret(namespace=tgtNamespace, name='opsani-servo-auth')
+        # except kubernetes.client.rest.ApiException as ae:
+        #     if ae.status == 404:
+        #         sec = None
+        #     else:
+        #         raise
 
-        if imbConfig.get('token') and sec is None:
-            s_body = kubernetes.client.V1Secret(
-                api_version="v1",
-                string_data={'token': imbConfig['token']},
-                kind="Secret",
-                metadata={'name': 'optune-auth'}
-            )
-            core_client.create_namespaced_secret(namespace=tgtNamespace, body=s_body)
+        # if imbConfig.get('token') and sec is None:
+        #     s_body = kubernetes.client.V1Secret(
+        #         api_version="v1",
+        #         string_data={'token': imbConfig['token']},
+        #         kind="Secret",
+        #         metadata={'name': 'opsani-servo-auth'}
+        #     )
+        #     core_client.create_namespaced_secret(namespace=tgtNamespace, body=s_body)

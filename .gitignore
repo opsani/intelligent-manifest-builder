@@ -3,5 +3,6 @@ __pycache__
 
 /override.yaml
 app-manifests/*
+servo-manifests/opsani-servo-auth.yaml
 servo-manifests/opsani-servo-configmap.yaml
 servo-manifests/opsani-servo-deployment.yaml

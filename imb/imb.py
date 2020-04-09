@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import asyncio
+from base64 import b64encode
 import os
 from pathlib import Path
 import yaml
@@ -15,6 +16,16 @@ class multiline_str(str): pass
 def multiline_str_representer(dumper, data):
     return dumper.represent_scalar(u'tag:yaml.org,2002:str', data, style='|')
 yaml.add_representer(multiline_str, multiline_str_representer)
+
+servo_secret = {
+    'apiVersion': 'v1',
+    'kind': 'Secret',
+    'metadata': {
+        'name': 'opsani-servo-auth'
+    },
+    'type': 'Opaque',
+    'data': { 'token': '' }
+}
 
 servo_configmap = {
     'apiVersion': 'v1',
@@ -55,7 +66,7 @@ servo_deployment = {
                     {
                         "name": "auth",
                         "secret": {
-                            "secretName": "optune-auth"
+                            "secretName": "opsani-servo-auth"
                         }
                     },
                     {
@@ -71,7 +82,7 @@ servo_deployment = {
                         "volumeMounts": [
                             {
                                 "name": "auth",
-                                "mountPath": "/etc/optune-auth",
+                                "mountPath": "/etc/opsani-servo-auth",
                                 "readOnly": True
                             },
                             {
@@ -181,15 +192,25 @@ class Imb:
                     title='Servo Info',
                     prompts=[
                         {'prompt': 'The following Servo image has been selected. Edit below to override with a different image', 'initial_text': recommended_servo_image},
-                        {'prompt': 'Please enter the name of your Optune account'},
-                        {'prompt': 'Please enter the name of the application to be optimized as it appears in Optune'}
+                        {'prompt': 'Please enter the name of your Optune account', 'initial_text': imbConfig['account'] if imbConfig.get('account') else ''},
+                        {'prompt': 'Please enter the name of the application to be optimized as it appears in Optune', 'initial_text': imbConfig['app'] if imbConfig.get('app') else ''}
                     ]
                 )
+
+            if not imbConfig.get('token'):
+                token = await self.ui.prompt_text_input(title='Servo Auth Token', prompts=[
+                        {'prompt': 'Please enter your Opsani provided Servo auth token below' }
+                    ])
+            else:
+                token = imbConfig['token']
+            servo_secret['data']['token'] = b64encode(token.encode("utf-8")).decode('utf-8')
+            with open('servo-manifests/opsani-servo-auth.yaml', 'w') as out_file:
+                yaml.dump(servo_secret, out_file, default_flow_style=False, sort_keys=False, width=1000)
 
             servo_deployment['spec']['template']['spec']['containers'][0]['image'] = recommended_servo_image
             servo_deployment['spec']['template']['spec']['containers'][0]['args'] = [
                 app_name,
-                "--auth-token=/etc/optune-auth/token"
+                "--auth-token=/etc/opsani-servo-auth/token"
             ]
             servo_deployment['spec']['template']['spec']['containers'][0]['env'] = [
                 {
