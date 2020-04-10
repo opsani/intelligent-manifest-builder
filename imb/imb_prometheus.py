@@ -147,10 +147,10 @@ class ImbPrometheus:
         #     if unit:
         #         self.servoConfig['metrics'][met_name]['unit'] = unit
 
-        # metric_names = list(self.servoConfig['metrics'].keys())
-        # if metric_names:
-        #     desired_index = await self.ui.prompt_radio_list(title='Select Performance Metric', header='Metric Name:', values=metric_names)
-        #     ocoOverride['optimization']['perf'] = "metrics['{}']".format(metric_names[desired_index])
+        metric_names = list(self.servoConfig['metrics'].keys())
+        if metric_names:
+            desired_index = await self.ui.prompt_radio_list(title='Select Performance Metric', header='Metric Name:', values=metric_names)
+            ocoOverride['optimization']['perf'] = "metrics['{}']".format(metric_names[desired_index])
 
         if port_forward_proc is not None and port_forward_proc.poll() is None:
             port_forward_proc.kill()

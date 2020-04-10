@@ -180,7 +180,7 @@ class Imb:
             recommended_servo_image = 'opsani/servo-k8s-prom-vegeta:latest'
 
             if imbConfig.get('app') and imbConfig.get('account'):
-                opsani_account, app_name = imbConfig['app'], imbConfig['account']
+                app_name, opsani_account = imbConfig['app'], imbConfig['account']
                 recommended_servo_image = await self.ui.prompt_text_input(
                     title='Servo Info',
                     prompts=[
