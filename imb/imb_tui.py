@@ -46,51 +46,6 @@ class ImbTui:
     async def stop_ui(self):
         self.app.exit()
 
-    ## K8s prompt values from default context
-    async def prompt_k8s_active_context(self, kubeconfigPath='', context='', cluster=''):
-        result = None
-        input_done = asyncio.Event()
-        def yes_handler():
-            nonlocal result
-            result = True
-            input_done.set()
-
-        def no_handler():
-            nonlocal result
-            result = False
-            input_done.set()
-
-        yn_dialog = Dialog(
-            title='Use Active Context?',
-            body=Window(
-                FormattedTextControl('Is this the context of the application to be optimized?'), 
-                align=WindowAlign.CENTER,
-                height=1,
-            ),
-            buttons=[
-                Button(text="Yes", handler=yes_handler),
-                Button(text="No", handler=no_handler),
-            ],
-            modal=False,
-        )
-        # disable a_reverse style applied to dialogs
-        yn_dialog.container.container.content.style=""
-        self.app_frame.body = HSplit([
-            Window(FormattedTextControl('Kubernetes Config', style='bold'), align=WindowAlign.CENTER, height=1),
-            Window(),
-            Window(FormattedTextControl('Kubeconfig Path:'), height=1),
-            Window(FormattedTextControl(kubeconfigPath), align=WindowAlign.CENTER),
-            Window(FormattedTextControl('Active Context:'), height=1),
-            Window(FormattedTextControl(context), align=WindowAlign.CENTER),
-            Window(FormattedTextControl('Active Cluster:'), height=1),
-            Window(FormattedTextControl(cluster), align=WindowAlign.CENTER),
-            yn_dialog,
-        ])
-        self.app.invalidate()
-        self.app.layout.focus(self.app_frame)
-        await input_done.wait()
-        return result
-
     async def promt_yn(self, title, prompt):
         result = None
         input_done = asyncio.Event()
@@ -105,6 +60,9 @@ class ImbTui:
             result = False
             input_done.set()
 
+        def back_handler():
+            input_done.set()
+
         yn_dialog = Dialog(
             title=title,
             body=Window(
@@ -115,6 +73,7 @@ class ImbTui:
             buttons=[
                 Button(text="Yes", handler=yes_handler),
                 Button(text="No", handler=no_handler),
+                Button(text="Back", handler=back_handler),
             ],
             modal=False,
         )
@@ -131,7 +90,11 @@ class ImbTui:
         return result
 
     async def prompt_text_input(self, title, prompts):
-        result = None
+        if len(prompts) == 1:
+            result = None
+        else:
+            result = tuple(None for _ in prompts)
+            
         input_done = asyncio.Event()
         text_fields = []
         dialog_hsplit_content = []
@@ -148,11 +111,11 @@ class ImbTui:
                 result = tuple( t.text for t in text_fields )
             input_done.set()
 
-        def cancel_handler() -> None:
+        def back_handler() -> None:
             input_done.set()
 
         ok_button = Button(text='Ok', handler=ok_handler)
-        cancel_button = Button(text='Cancel', handler=cancel_handler)
+        back_button = Button(text='Back', handler=back_handler)
 
         for p in prompts:
             text_field = TextArea(text=p.get('initial_text', ''), multiline=False, accept_handler=accept)
@@ -167,7 +130,7 @@ class ImbTui:
             body=HSplit(dialog_hsplit_content,
                 padding=Dimension(preferred=1, max=1),
             ),
-            buttons=[ok_button, cancel_button],
+            buttons=[ok_button, back_button],
             modal=False,
         )
         dialog.container.container.content.style=""
@@ -190,7 +153,7 @@ class ImbTui:
             result=radio_list.current_value
             input_done.set()
 
-        def cancel_handler() -> None:
+        def back_handler() -> None:
             input_done.set()
 
         radio_list = RadioList(list(enumerate(values)))
@@ -201,7 +164,7 @@ class ImbTui:
             ),
             buttons=[
                 Button(text='Ok', handler=ok_handler),
-                Button(text='Cancel', handler=cancel_handler),
+                Button(text='Back', handler=back_handler),
             ],
             modal=False,
         )
@@ -227,7 +190,7 @@ class ImbTui:
             result = cb_list.current_values
             input_done.set()
 
-        def cancel_handler() -> None:
+        def back_handler() -> None:
             input_done.set()
 
         cb_list = CheckboxList(list(enumerate(values)))
@@ -236,7 +199,7 @@ class ImbTui:
             body=HSplit([Label(text=HTML("    <b>{}</b>".format(header)), dont_extend_height=True), cb_list,], padding=1),
             buttons=[
                 Button(text='Ok', handler=ok_handler),
-                Button(text='Cancel', handler=cancel_handler),
+                Button(text='Back', handler=back_handler),
             ],
             modal=False,
         )

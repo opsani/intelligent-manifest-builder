@@ -112,7 +112,10 @@ servo_deployment = {
 
 class Imb:
     def __init__(self):
-        self.result = None
+        # list of lists. sublist contains two items: 0-> method to run 1-> whether it prompted for user interaction
+        #   each method invoked in the run_stack is responsible for appending the next method to be called
+        #   program exits when None is top of the stack
+        self.run_stack = []
 
     def run(self):
         self.ui = ImbTui()
@@ -133,110 +136,182 @@ class Imb:
 
     async def main(self):
         try:
-            await self.ui.init_done.wait() # wait for UI to be ready before doing anything with it
-
-            servoConfig = {}
-            ocoOverride = {
-                'adjustment': { 'control': {} },
-                'measurement': { 'control': { 
-                    'load': {},
-                    'warmup': 0,
-                    'duration': 0,
-                    'past': 60
-                } },
-                'optimization' : {}
-            }
-            try:
-                with open('oimb.yaml', 'r') as in_file:
-                    imbConfig = yaml.safe_load(in_file)['oimb']
-            except FileNotFoundError:
-                imbConfig = {}
-
-            # Run k8s imb by default for now
-            k8sImb = ImbKubernetes(self.ui)
-            await k8sImb.run(imbConfig=imbConfig, ocoOverride=ocoOverride)
-            servoConfig['k8s'] = k8sImb.servoConfig
-            
-            # Run prometheus discovery
-            discoverProm = bool(k8sImb.prometheusService)
-            if not discoverProm:
-                discoverProm = await self.ui.promt_yn(title='Configure Prometheus Metrics?', prompt='Is there a prometheus deployment to discover metrics from?')
-
-            if discoverProm:
-                promImb = ImbPrometheus(self.ui)
-                await promImb.run(k8sImb=k8sImb, ocoOverride=ocoOverride)
-                servoConfig['prom'] = promImb.servoConfig
-
-            if imbConfig.get('mode') == 'saturation':
-                # Run imb vegeta as default load gen for now
-                vegImb = ImbVegeta(self.ui)
-                await vegImb.run( k8sImb=k8sImb, ocoOverride=ocoOverride)
-                servoConfig['vegeta'] = vegImb.servoConfig
-
-            # Generate servo deployment manifest
-            Path('./servo-manifests').mkdir(exist_ok=True)
-
-            # TODO: logic to actually recommend a servo image based on discovery
-            recommended_servo_image = 'opsani/servo-k8s-prom-vegeta:latest'
-
-            if imbConfig.get('app') and imbConfig.get('account'):
-                app_name, opsani_account = imbConfig['app'], imbConfig['account']
-                recommended_servo_image = await self.ui.prompt_text_input(
-                    title='Servo Info',
-                    prompts=[
-                        {'prompt': 'The following Servo image has been selected. Edit below to override with a different image', 'initial_text': recommended_servo_image}
-                    ]
-                )
-            else:
-                recommended_servo_image, opsani_account, app_name = await self.ui.prompt_text_input(
-                    title='Servo Info',
-                    prompts=[
-                        {'prompt': 'The following Servo image has been selected. Edit below to override with a different image', 'initial_text': recommended_servo_image},
-                        {'prompt': 'Please enter the name of your Optune account', 'initial_text': imbConfig['account'] if imbConfig.get('account') else ''},
-                        {'prompt': 'Please enter the name of the application to be optimized as it appears in Optune', 'initial_text': imbConfig['app'] if imbConfig.get('app') else ''}
-                    ]
-                )
-
-            if not imbConfig.get('token'):
-                token = await self.ui.prompt_text_input(title='Servo Auth Token', prompts=[
-                        {'prompt': 'Please enter your Opsani provided Servo auth token below' }
-                    ])
-            else:
-                token = imbConfig['token']
-            servo_secret['data']['token'] = b64encode(token.encode("utf-8")).decode('utf-8')
-            with open('servo-manifests/opsani-servo-auth.yaml', 'w') as out_file:
-                yaml.dump(servo_secret, out_file, default_flow_style=False, sort_keys=False, width=1000)
-
-            servo_deployment['metadata']['namespace'] = k8sImb.namespace
-            servo_deployment['spec']['template']['spec']['containers'][0]['image'] = recommended_servo_image
-            servo_deployment['spec']['template']['spec']['containers'][0]['args'] = [
-                app_name,
-                "--auth-token=/etc/opsani-servo-auth/token"
-            ]
-            servo_deployment['spec']['template']['spec']['containers'][0]['env'] = [
-                {
-                    "name": "OPTUNE_ACCOUNT",
-                    "value": opsani_account
-                }
-            ]
-            with open('servo-manifests/opsani-servo-deployment.yaml', 'w') as out_file:
-                yaml.dump(servo_deployment, out_file, default_flow_style=False, sort_keys=False, width=1000)
-
-            # Generate servo configmap (embed config.yaml document with multiline representer)
-            servo_configmap['data']['config.yaml'] = multiline_str(yaml.dump(servoConfig, default_flow_style=False, width=1000))
-            with open('servo-manifests/opsani-servo-configmap.yaml', 'w') as out_file:
-                yaml.dump(servo_configmap, out_file, default_flow_style=False, sort_keys=False, width=1000)
-
-            with open('override.yaml', 'w') as out_file:
-                yaml.dump(ocoOverride, out_file, sort_keys=False, width=1000)
-
-            await self.ui.stop_ui() # Shut down UI when finished
-
+            # append first method onto run stack and start executing run_stack
+            self.run_stack.append([self.initialize_discovery, False])
+            await self.execute_run_stack()
+            # Shut down UI when finished
+            await self.ui.stop_ui() 
         except asyncio.CancelledError:
             raise # don't try to stop the UI when cancelled. Cancel likely came from UI exit handler which already called exit on itself
         except Exception: # stop UI to restore terminal before printing exception
             await self.ui.stop_ui()
             raise
+
+    async def execute_run_stack(self):
+        while self.run_stack[-1] is not None:
+            # Store reference to current method
+            current = self.run_stack[-1]
+            # Run method and capture whether it was interacted with (or back was selected)
+            interaction = await current[0](self.run_stack)
+            # Methods return None when go back is selected
+            if interaction is None:
+                self.run_stack.pop()
+                while self.run_stack and self.run_stack[-1][1] == False:
+                    self.run_stack.pop()
+                if not self.run_stack:
+                    return # Backed out of the entire program, just exit here
+            else:
+                # Update reference to method that was just run with bool; whether it was interacted with or not
+                current[1] = interaction
+
+    async def initialize_discovery(self, run_stack):
+        self.servoConfig = {}
+        self.ocoOverride = {
+            'adjustment': { 'control': {} },
+            'measurement': { 'control': { 
+                'load': {},
+                'warmup': 0,
+                'duration': 0,
+                'past': 60
+            } },
+            'optimization' : {}
+        }
+        try:
+            with open('oimb.yaml', 'r') as in_file:
+                self.imbConfig = yaml.safe_load(in_file)['oimb']
+        except FileNotFoundError:
+            self.imbConfig = {}
+
+        await self.ui.init_done.wait() # wait for UI to be ready before doing anything with it
+        # Queue up next method and return False for no interaction
+        run_stack.append([self.discover_adjust, False])
+        return False
+
+    async def discover_adjust(self, run_stack):
+        # Run k8s imb by default for now
+        self.k8sImb = ImbKubernetes(
+            ui=self.ui, 
+            finished_method=self.discover_measure,
+            imbConfig=self.imbConfig,
+            ocoOverride=self.ocoOverride,
+            servoConfig=self.servoConfig
+        )
+        run_stack.append([self.k8sImb.run, False])
+        return False
+        # self.servoConfig['k8s'] = k8sImb.servoConfig
+
+    async def discover_measure(self, run_stack):
+        interacted = False
+        # Run prometheus discovery
+        discoverProm = bool(self.k8sImb.prometheusService)
+        if not discoverProm:
+            interacted = True
+            discoverProm = await self.ui.promt_yn(title='Configure Prometheus Metrics?', prompt='Is there a prometheus deployment to discover metrics from?')
+            if discoverProm is None:
+                return None
+
+        if discoverProm:
+            self.promImb = ImbPrometheus(
+                ui=self.ui, 
+                finished_method=self.discover_load, 
+                k8sImb=self.k8sImb, 
+                ocoOverride=self.ocoOverride,
+                servoConfig=self.servoConfig
+            )
+            run_stack.append([self.promImb.run, False])
+        else:
+            run_stack.append([self.discover_load, False])
+
+        return interacted
+
+    async def discover_load(self, run_stack):
+        if self.imbConfig.get('mode') == 'saturation':
+            # Run imb vegeta as default load gen for now
+            self.vegImb = ImbVegeta(
+                ui=self.ui,
+                finished_method=self.select_servo, 
+                k8sImb=self.k8sImb,
+                ocoOverride=self.ocoOverride,
+                servoConfig=self.servoConfig
+            )
+            run_stack.append([self.vegImb.run, False])
+        else:
+            run_stack.append([self.select_servo, False])
+        return False
+
+    async def select_servo(self, run_stack):
+        # TODO: logic to actually recommend a servo image based on discovery
+        self.recommended_servo_image = 'opsani/servo-k8s-prom-vegeta:latest'
+
+        if self.imbConfig.get('app') and self.imbConfig.get('account'):
+            self.app_name, self.opsani_account = self.imbConfig['app'], self.imbConfig['account']
+            self.recommended_servo_image = await self.ui.prompt_text_input(
+                title='Servo Info',
+                prompts=[
+                    {'prompt': 'The following Servo image has been selected. Edit below to override with a different image', 'initial_text': self.recommended_servo_image}
+                ]
+            )
+            if self.recommended_servo_image is None:
+                return None
+        else:
+            self.recommended_servo_image, self.opsani_account, self.app_name = await self.ui.prompt_text_input(
+                title='Servo Info',
+                prompts=[
+                    {'prompt': 'The following Servo image has been selected. Edit below to override with a different image', 'initial_text': self.recommended_servo_image},
+                    {'prompt': 'Please enter the name of your Optune account', 'initial_text': self.imbConfig['account'] if self.imbConfig.get('account') else ''},
+                    {'prompt': 'Please enter the name of the application to be optimized as it appears in Optune', 'initial_text': self.imbConfig['app'] if self.imbConfig.get('app') else ''}
+                ]
+            )
+            if self.recommended_servo_image is None or self.opsani_account is None or self.app_name is None:
+                return None
+
+        run_stack.append([self.enter_token, False])
+        return True
+
+    async def enter_token(self, run_stack):
+        if not self.imbConfig.get('token'):
+            self.token = await self.ui.prompt_text_input(title='Servo Auth Token', prompts=[
+                    {'prompt': 'Please enter your Opsani provided Servo auth token below' }
+                ])
+            if self.token is None:
+                return None
+        else:
+            self.token = self.imbConfig['token']
+        
+        run_stack.append([self.finish_discovery, False])
+        return True
+        
+    async def finish_discovery(self, run_stack):
+        # Generate servo deployment manifest
+        servo_secret['data']['token'] = b64encode(self.token.encode("utf-8")).decode('utf-8')
+        Path('./servo-manifests').mkdir(exist_ok=True)
+        with open('servo-manifests/opsani-servo-auth.yaml', 'w') as out_file:
+            yaml.dump(servo_secret, out_file, default_flow_style=False, sort_keys=False, width=1000)
+
+        servo_deployment['spec']['template']['spec']['containers'][0]['image'] = self.recommended_servo_image
+        servo_deployment['spec']['template']['spec']['containers'][0]['args'] = [
+            self.app_name,
+            "--auth-token=/etc/opsani-servo-auth/token"
+        ]
+        servo_deployment['spec']['template']['spec']['containers'][0]['env'] = [
+            {
+                "name": "OPTUNE_ACCOUNT",
+                "value": self.opsani_account
+            }
+        ]
+        with open('servo-manifests/opsani-servo-deployment.yaml', 'w') as out_file:
+            yaml.dump(servo_deployment, out_file, default_flow_style=False, sort_keys=False, width=1000)
+
+        # Generate servo configmap (embed config.yaml document with multiline representer)
+        servo_configmap['data']['config.yaml'] = multiline_str(yaml.dump(self.servoConfig, default_flow_style=False, width=1000))
+        with open('servo-manifests/opsani-servo-configmap.yaml', 'w') as out_file:
+            yaml.dump(servo_configmap, out_file, default_flow_style=False, sort_keys=False, width=1000)
+
+        with open('override.yaml', 'w') as out_file:
+            yaml.dump(self.ocoOverride, out_file, sort_keys=False, width=1000)
+
+        run_stack.append(None) # done, exit here
+        return False
 
 def imb():
     Imb().run()
