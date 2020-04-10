@@ -207,6 +207,7 @@ class Imb:
             with open('servo-manifests/opsani-servo-auth.yaml', 'w') as out_file:
                 yaml.dump(servo_secret, out_file, default_flow_style=False, sort_keys=False, width=1000)
 
+            servo_deployment['metadata']['namespace'] = k8sImb.namespace
             servo_deployment['spec']['template']['spec']['containers'][0]['image'] = recommended_servo_image
             servo_deployment['spec']['template']['spec']['containers'][0]['args'] = [
                 app_name,

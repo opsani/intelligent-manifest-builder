@@ -44,18 +44,18 @@ class ImbKubernetes:
         # Get namespaces, prompt if multiple
         namespaces = [n.metadata.name for n in core_client.list_namespace().items if n.metadata.name not in EXCLUDED_NAMESPACES]
         if len(namespaces) == 1:
-            tgtNamespace = namespaces[0]
+            self.namespace = namespaces[0]
         elif imbConfig.get('app') and imbConfig['app'] in namespaces:
-            tgtNamespace = imbConfig['app']
+            self.namespace = imbConfig['app']
         elif imbConfig.get('account') and imbConfig['account'] in namespaces:
-            tgtNamespace = imbConfig['account']
+            self.namespace = imbConfig['account']
         else:
             desiredIndex = await self.ui.prompt_radio_list(values=namespaces, title='Select Namespace of App to be Optimized', header='Namespace:')
-            tgtNamespace = namespaces[desiredIndex]
-        self.servoConfig['namespace'] = tgtNamespace
+            self.namespace = namespaces[desiredIndex]
+        self.servoConfig['namespace'] = self.namespace
 
         # Get deployments, prompt if multiple
-        deployments = apps_client.list_namespaced_deployment(namespace=tgtNamespace).items
+        deployments = apps_client.list_namespaced_deployment(namespace=self.namespace).items
         if len(deployments) < 1:
             raise Exception('Specified context and namespace contained no deployments')
         elif len(deployments) == 1:
@@ -71,7 +71,7 @@ class ImbKubernetes:
                 tgtDeployment, tgtDeploymentName = deployments[desiredIndex], dep_names[desiredIndex]
 
         # Get deployment as json (instead of client model), dump to yaml file
-        raw_dep_resp = apps_client.read_namespaced_deployment(name=tgtDeploymentName, namespace=tgtNamespace, _preload_content=False)
+        raw_dep_resp = apps_client.read_namespaced_deployment(name=tgtDeploymentName, namespace=self.namespace, _preload_content=False)
         dep_obj = json.loads(raw_dep_resp.data)
         dep_obj.pop('status', None)
         with open('app-manifests/{}-depmanifest.yaml'.format(tgtDeploymentName), 'w') as out_file:
@@ -115,19 +115,19 @@ class ImbKubernetes:
         self.depLabels = tgtDeployment.spec.selector.match_labels
         if not self.depLabels:
             raise Exception('Target deployment has no matchLabels selector')
-        all_tgt_ns_services = core_client.list_namespaced_service(namespace=tgtNamespace)
+        all_tgt_ns_services = core_client.list_namespaced_service(namespace=self.namespace)
         tgtServices = [s for s in all_tgt_ns_services.items if s.spec.selector and all(( k in self.depLabels and self.depLabels[k] == v for k, v in s.spec.selector.items()))]
         for s in tgtServices:
             self.services.append(s)
             # Dump service manifest(s)
-            raw_serv = core_client.read_namespaced_service(namespace=tgtNamespace, name=s.metadata.name, _preload_content=False)
+            raw_serv = core_client.read_namespaced_service(namespace=self.namespace, name=s.metadata.name, _preload_content=False)
             serv_obj = json.loads(raw_serv.data)
             serv_obj.pop('status', None)
             with open('app-manifests/{}-servmanifest.yaml'.format(s.metadata.name), 'w') as out_file:
                 yaml.dump(serv_obj, out_file, default_flow_style=False)
 
         # Discover ingresses based on services
-        all_tgt_ns_ingresses = exts_client.list_namespaced_ingress(namespace=tgtNamespace)
+        all_tgt_ns_ingresses = exts_client.list_namespaced_ingress(namespace=self.namespace)
         tgtIngresses = [i for i in all_tgt_ns_ingresses.items if any((
             (i.spec.backend and i.spec.backend.service_name == s.metadata.name) # Matches default backend
             or (i.spec.rules and any(( # Matches any of the rules' paths' backends
@@ -141,7 +141,7 @@ class ImbKubernetes:
         for i in tgtIngresses:
             self.ingresses.append(i)
             # Dump manifest(s)
-            raw_ing = exts_client.read_namespaced_ingress(namespace=tgtNamespace, name=i.metadata.name, _preload_content=False)
+            raw_ing = exts_client.read_namespaced_ingress(namespace=self.namespace, name=i.metadata.name, _preload_content=False)
             ing_obj = json.loads(raw_ing.data)
             ing_obj.pop('status', None)
             with open('app-manifests/{}-ingrmanifest.yaml'.format(i.metadata.name), 'w') as out_file:
@@ -153,22 +153,3 @@ class ImbKubernetes:
             if serv.metadata.name == 'prometheus':
                 self.prometheusService = serv
                 break
-        
-        # TODO: this will likely be a separate method from run() when re-enabled
-        # Create secret for opsani-servo-auth token if included in config and not yet defined
-        # try:
-        #     sec = core_client.read_namespaced_secret(namespace=tgtNamespace, name='opsani-servo-auth')
-        # except kubernetes.client.rest.ApiException as ae:
-        #     if ae.status == 404:
-        #         sec = None
-        #     else:
-        #         raise
-
-        # if imbConfig.get('token') and sec is None:
-        #     s_body = kubernetes.client.V1Secret(
-        #         api_version="v1",
-        #         string_data={'token': imbConfig['token']},
-        #         kind="Secret",
-        #         metadata={'name': 'opsani-servo-auth'}
-        #     )
-        #     core_client.create_namespaced_secret(namespace=tgtNamespace, body=s_body)
