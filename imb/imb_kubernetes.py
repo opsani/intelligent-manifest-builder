@@ -114,40 +114,35 @@ class ImbKubernetes:
         if len(containers) < 1:
             raise Exception('Specified deployment contained no containers')
         elif len(containers) == 1:
-            tgtContainers = [containers[0]]
+            tgtContainer = containers[0]
         else:
             interacted = True
             cont_names = [c.name for c in containers]
-            desiredIndexes = await self.ui.prompt_check_list(values=cont_names, title='Select Container(s) to be Optimized', header='Container:')
-            if desiredIndexes is None:
+            desiredIndex = await self.ui.prompt_radio_list(values=cont_names, title='Select Container to be Optimized', header='Container:')
+            if desiredIndex is None:
                 return None
-            tgtContainers = [containers[di] for di in desiredIndexes]
+            tgtContainer = containers[desiredIndex]
         
-        # Can only have replicas set once per deployment. Only getting one deployment for now so can only set once
-        replicas_set = False
-        for c in tgtContainers:
-            cpu, mem = ('100m', '128Mi') if c.resources.limits is None else (c.resources.limits['cpu'], c.resources.limits['memory'])
-            cpu = float(re.search(r'\d+', cpu).group()) / 1000
-            mem = float(re.search(r'\d+', mem).group()) / 1024
-            settings = {}
-            if not replicas_set:
-                settings['replicas'] = {
-                    'min': self.deployment.spec.replicas,
-                    'max': self.deployment.spec.replicas,
-                    'step': 0,
-                }
-                replicas_set = True
-            settings['cpu'] = {
-                'min': cpu,
-                'max': cpu,
-                'step': 0,
-            }
-            settings['mem'] = {
-                'min': mem,
-                'max': mem,
-                'step': 0,
-            }
-            self.k8sConfig['application']['components']['{}/{}'.format(self.deployment_name, c.name)] = {'settings': settings}
+        cpu, mem = ('100m', '128Mi') if tgtContainer.resources.limits is None else (tgtContainer.resources.limits['cpu'], tgtContainer.resources.limits['memory'])
+        cpu = float(re.search(r'\d+', cpu).group()) / 1000
+        mem = float(re.search(r'\d+', mem).group()) / 1024
+        settings = {}
+        settings['replicas'] = {
+            'min': self.deployment.spec.replicas,
+            'max': self.deployment.spec.replicas,
+            'step': 0,
+        }
+        settings['cpu'] = {
+            'min': cpu,
+            'max': cpu,
+            'step': 0,
+        }
+        settings['mem'] = {
+            'min': mem,
+            'max': mem,
+            'step': 0,
+        }
+        self.k8sConfig['application']['components']['{}/{}'.format(self.deployment_name, tgtContainer.name)] = {'settings': settings}
         
         run_stack.append([self.finish_discovery, False])
         return interacted
