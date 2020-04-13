@@ -47,7 +47,7 @@ class ImbVegeta:
         else:
             interacted = True
             desired_index = await self.ui.prompt_radio_list(
-                title='Select Endpoint for Vegeta Load Generation', 
+                title='Select Endpoint for Load Generation', 
                 header='URL:', 
                 values=[ep['url'] for ep in app_load_endpoints])
             if desired_index is None:
@@ -63,7 +63,7 @@ class ImbVegeta:
 
     async def select_duration(self, run_stack):
         load_duration = await self.ui.prompt_text_input(
-            title='Vegeta Load Generation Configuration',
+            title='Load Generation Configuration',
             prompts=[
                 {'prompt': 'Duration of load generation', 'initial_text': '5m'}
             ]
