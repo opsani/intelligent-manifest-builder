@@ -62,6 +62,7 @@ class ImbKubernetes:
         self.core_client = kubernetes.client.CoreV1Api()
         self.apps_client = kubernetes.client.AppsV1Api()
         self.exts_client = kubernetes.client.ExtensionsV1beta1Api()
+        self.autoscaling_client = kubernetes.client.AutoscalingV1Api()
 
         # Get namespaces, prompt if multiple or no match with imb config
         namespaces = [n.metadata.name for n in self.core_client.list_namespace().items if n.metadata.name not in EXCLUDED_NAMESPACES]
@@ -124,23 +125,35 @@ class ImbKubernetes:
             tgtContainer = containers[desiredIndex]
         
         cpu, mem = ('100m', '128Mi') if tgtContainer.resources.limits is None else (tgtContainer.resources.limits['cpu'], tgtContainer.resources.limits['memory'])
-        cpu = float(re.search(r'\d+', cpu).group()) / 1000
-        mem = float(re.search(r'\d+', mem).group()) / 1024
+        cpu = _convert_to_cores(cpu)
+        cpu_min, cpu_max = _calculate_min_max(cpu, 0.125, 0.25, 4)
+        mem = _convert_to_gib(mem)
+        mem_min, mem_max = _calculate_min_max(mem, 0.125, 0.25, 4)
+
+        hpa = [hpa for hpa in self.autoscaling_client.list_namespaced_horizontal_pod_autoscaler(namespace=self.namespace).items 
+            if hpa.spec.scale_target_ref.kind == "Deployment" and hpa.spec.scale_target_ref.name == self.deployment_name ]
+        if hpa:
+            hpa = hpa[0]
+            rep_min = hpa.spec.min_replicas
+            rep_max = hpa.spec.max_replicas
+        else:
+            rep_min = max(1, (self.deployment.spec.replicas * 0.25))
+            rep_max = 4 * self.deployment.spec.replicas
+
         settings = {}
         settings['replicas'] = {
-            'min': self.deployment.spec.replicas,
-            'max': self.deployment.spec.replicas,
-            'step': 0,
+            'min': rep_min,
+            'max': rep_max,
         }
         settings['cpu'] = {
-            'min': cpu,
-            'max': cpu,
-            'step': 0,
+            'min': cpu_min,
+            'max': cpu_max,
+            'step': 0.125,
         }
         settings['mem'] = {
-            'min': mem,
-            'max': mem,
-            'step': 0,
+            'min': mem_min,
+            'max': mem_max,
+            'step': 0.125,
         }
         self.k8sConfig['application']['components']['{}/{}'.format(self.deployment_name, tgtContainer.name)] = {'settings': settings}
         
@@ -185,3 +198,27 @@ class ImbKubernetes:
         self.servoConfig['k8s'] = self.k8sConfig
         run_stack.append([self.finished_method, False])
         return False
+
+# https://stackoverflow.com/a/60708339
+MEM_UNITS = {
+    "B": 1, "K": 1000, "M": 1000**2, "G": 1000**3, "T": 1000**4, "P": 1000**5, "E": 1000**6,
+        "Ki": 1024, "Mi": 1024**2, "Gi": 1024**3, "Ti": 1024**4, "Pi": 1024**5, "Ei": 1024**6
+}
+def _convert_to_gib(mem):
+    match = re.search(r'(\d+)([BKMGTPE]i?)?', mem)
+    if match.group(2) is None: # mem is in bytes, has no size specifier
+        return float(match.group(1)) / (1024**3)
+    else:
+        return (float(match.group(1)) * MEM_UNITS[match.group(2)]) / (1024**3)
+
+def _convert_to_cores(cpu):
+    if cpu.endswith("m"):
+        return float(cpu.rstrip('m')) / 1000
+    else:
+        return float(cpu)
+
+def _calculate_min_max(value, step, min_mult, max_mult):
+    max_val = ((value * max_mult) // step) * step
+    diff = (1.0 - min_mult) * value
+    min_val = min(value, max(step, (value - (diff // step) * step)))
+    return (min_val, max_val)
