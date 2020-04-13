@@ -150,27 +150,30 @@ class Imb:
     async def select_servo(self, run_stack):
         # TODO: logic to actually recommend a servo image based on discovery
         self.recommended_servo_image = 'opsani/servo-k8s-prom-vegeta:latest'
+        self.servo_namespace = self.k8sImb.namespace
 
         if self.imbConfig.get('app') and self.imbConfig.get('account'):
             self.app_name, self.opsani_account = self.imbConfig['app'], self.imbConfig['account']
-            self.recommended_servo_image = await self.ui.prompt_text_input(
-                title='Servo Info',
-                prompts=[
-                    {'prompt': 'The following Servo image has been selected. Edit below to override with a different image', 'initial_text': self.recommended_servo_image}
-                ]
-            )
-            if self.recommended_servo_image is None:
-                return None
-        else:
-            self.recommended_servo_image, self.opsani_account, self.app_name = await self.ui.prompt_text_input(
+            self.recommended_servo_image, self.servo_namespace = await self.ui.prompt_text_input(
                 title='Servo Info',
                 prompts=[
                     {'prompt': 'The following Servo image has been selected. Edit below to override with a different image', 'initial_text': self.recommended_servo_image},
+                    {'prompt': 'Please enter the namespace to which servo should be deployed', 'initial_text': self.servo_namespace}
+                ]
+            )
+            if self.recommended_servo_image is None or self.servo_namespace is None:
+                return None
+        else:
+            self.recommended_servo_image, self.servo_namespace, self.opsani_account, self.app_name = await self.ui.prompt_text_input(
+                title='Servo Info',
+                prompts=[
+                    {'prompt': 'The following Servo image has been selected. Edit below to override with a different image', 'initial_text': self.recommended_servo_image},
+                    {'prompt': 'Please enter the namespace to which servo should be deployed', 'initial_text': self.servo_namespace},
                     {'prompt': 'Please enter the name of your Optune account', 'initial_text': self.imbConfig['account'] if self.imbConfig.get('account') else ''},
                     {'prompt': 'Please enter the name of the application to be optimized as it appears in Optune', 'initial_text': self.imbConfig['app'] if self.imbConfig.get('app') else ''}
                 ]
             )
-            if self.recommended_servo_image is None or self.opsani_account is None or self.app_name is None:
+            if self.recommended_servo_image is None or self.servo_namespace is None or self.opsani_account is None or self.app_name is None:
                 return None
 
         run_stack.append([self.enter_token, False])
@@ -194,19 +197,19 @@ class Imb:
     async def finish_discovery(self, run_stack):
         Path('./servo-manifests').mkdir(exist_ok=True)
         # Generate servo rbac manifest
-        servo_service_account['metadata']['namespace'] = self.k8sImb.namespace
-        servo_role['metadata']['namespace'] = self.k8sImb.namespace
-        servo_role_binding['metadata']['namespace'] = self.k8sImb.namespace
+        servo_service_account['metadata']['namespace'] = self.servo_namespace
+        servo_role['metadata']['namespace'] = self.servo_namespace
+        servo_role_binding['metadata']['namespace'] = self.servo_namespace
         with open('servo-manifests/opsani-servo-rbac.yaml', 'w') as out_file:
             yaml.dump_all([servo_service_account, servo_role, servo_role_binding], out_file, default_flow_style=False, sort_keys=False, width=1000)
 
         # Generate servo deployment manifest
-        servo_secret['metadata']['namespace'] = self.k8sImb.namespace
+        servo_secret['metadata']['namespace'] = self.servo_namespace
         servo_secret['data']['token'] = b64encode(self.token.encode("utf-8")).decode('utf-8')
         with open('servo-manifests/opsani-servo-auth.yaml', 'w') as out_file:
             yaml.dump(servo_secret, out_file, default_flow_style=False, sort_keys=False, width=1000)
 
-        servo_deployment['metadata']['namespace'] = self.k8sImb.namespace
+        servo_deployment['metadata']['namespace'] = self.servo_namespace
         servo_deployment['spec']['template']['spec']['containers'][0]['image'] = self.recommended_servo_image
         servo_deployment['spec']['template']['spec']['containers'][0]['args'] = [
             self.app_name,
@@ -222,7 +225,7 @@ class Imb:
             yaml.dump(servo_deployment, out_file, default_flow_style=False, sort_keys=False, width=1000)
 
         # Generate servo configmap (embed config.yaml document with multiline representer)
-        servo_configmap['metadata']['namespace'] = self.k8sImb.namespace
+        servo_configmap['metadata']['namespace'] = self.servo_namespace
         servo_configmap['data']['config.yaml'] = multiline_str(yaml.dump(self.servoConfig, default_flow_style=False, width=1000))
         with open('servo-manifests/opsani-servo-configmap.yaml', 'w') as out_file:
             yaml.dump(servo_configmap, out_file, default_flow_style=False, sort_keys=False, width=1000)
