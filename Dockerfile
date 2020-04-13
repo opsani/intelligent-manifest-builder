@@ -16,7 +16,6 @@ ENV CO_TOKEN='' \
 
 WORKDIR /app
 COPY . /app/
-RUN chmod +x ./imb/imb.py
 
 RUN apt-get update \
   && apt-get install -y curl apt-transport-https gnupg2 \
