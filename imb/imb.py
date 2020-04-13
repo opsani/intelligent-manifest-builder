@@ -269,7 +269,9 @@ class Imb:
         return True
 
     async def enter_token(self, run_stack):
+        interacted = False
         if not self.imbConfig.get('token'):
+            interacted = True
             self.token = await self.ui.prompt_text_input(title='Servo Auth Token', prompts=[
                     {'prompt': 'Please enter your Opsani provided Servo auth token below' }
                 ])
@@ -279,7 +281,7 @@ class Imb:
             self.token = self.imbConfig['token']
         
         run_stack.append([self.finish_discovery, False])
-        return True
+        return interacted
         
     async def finish_discovery(self, run_stack):
         # Generate servo deployment manifest
