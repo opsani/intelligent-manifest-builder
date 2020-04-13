@@ -44,6 +44,6 @@ $ poetry run ./imb.py
 ## Running Under Docker
 
 ```console
-$ docker build -t imb .
-$ docker run -i -v ~/.kube:/root/.kube imb
+$ docker build -t opsani/intelligent-manifest-builder .
+$ docker run -i -v ~/.kube:/root/.kube opsani/intelligent-manifest-builder
 ```
