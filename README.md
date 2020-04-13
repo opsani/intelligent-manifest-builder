@@ -29,7 +29,5 @@ Requires python >= 3.6.1
 
 ## Output
 
-- Dumps a `*-depmanifest.yaml` file where * is the selected deployment
-  - File contains deployment manifest for replicating the target deployment
-- Dumps a `config.yaml` file containing settings for each selected deployment/container
-  - contains settings replicas, cpu, and mem with min/max set to current cluster values and step of 0
+- Dumps a `servo-manifests` folder containing k8s manifests to deploy a servo with discovered configuration
+- Dumps an `override.yaml` file containing override(s) to be applied to the OCO backend
