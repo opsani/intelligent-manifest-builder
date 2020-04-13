@@ -2,7 +2,7 @@
 
 ## Build with Docker
 
-docker build . -t opsani/imb -t imb
+docker build -t opsani/imb -t imb -t opsani/intelligent-manifest-builder .
 
 ## Run with Docker (AWS)
 
@@ -27,7 +27,7 @@ Requires python >= 3.6.1
 
 ```console
 $ poetry install
-$ poetry run ./imb.py
+$ poetry run ./run_imb_noinstall.py
 ```
 
 ## Run as script without installation
