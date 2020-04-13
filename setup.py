@@ -7,7 +7,8 @@ setup ( name='imb',
       'imb.imb_tui',
       'imb.imb_kubernetes',
       'imb.imb_prometheus',
-      'imb.imb_vegeta'
+      'imb.imb_vegeta',
+      'imb.servo_manifests'
       ],
   install_requires=[
       'kubernetes',

@@ -10,105 +10,13 @@ from imb.imb_tui import ImbTui
 from imb.imb_kubernetes import ImbKubernetes
 from imb.imb_prometheus import ImbPrometheus
 from imb.imb_vegeta import ImbVegeta
+from imb.servo_manifests import servo_configmap, servo_deployment, servo_role, servo_role_binding, servo_secret, servo_service_account
 
 # Allow yaml sub-document to be embedded as multi-line string when needed
 class multiline_str(str): pass
 def multiline_str_representer(dumper, data):
     return dumper.represent_scalar(u'tag:yaml.org,2002:str', data, style='|')
 yaml.add_representer(multiline_str, multiline_str_representer)
-
-servo_secret = {
-    'apiVersion': 'v1',
-    'kind': 'Secret',
-    'metadata': {
-        'name': 'opsani-servo-auth'
-    },
-    'type': 'Opaque',
-    'data': { 'token': '' }
-}
-
-servo_configmap = {
-    'apiVersion': 'v1',
-    'kind': 'ConfigMap',
-    'metadata': {
-        'name': 'opsani-servo-config'
-    },
-    'data': {}
-}
-
-servo_deployment = {
-    "apiVersion": "apps/v1",
-    "kind": "Deployment",
-    "metadata": {
-        "name": "opsani-servo",
-        "labels": {
-            "comp": "opsani-servo",
-            "optune.ai/exclude": "1"
-        }
-    },
-    "spec": {
-        "replicas": 1,
-        "revisionHistoryLimit": 3,
-        "selector": {
-            "matchLabels": {
-                "comp": "opsani-servo"
-            }
-        },
-        "template": {
-            "metadata": {
-                "labels": {
-                    "comp": "opsani-servo"
-                }
-            },
-            "spec": {
-                "serviceAccountName": "opsani-servo",
-                "volumes": [
-                    {
-                        "name": "auth",
-                        "secret": {
-                            "secretName": "opsani-servo-auth"
-                        }
-                    },
-                    {
-                        "name": "config",
-                        "configMap": {
-                            "name": "opsani-servo-config"
-                        }
-                    }
-                ],
-                "containers": [
-                    {
-                        "name": "main",
-                        "volumeMounts": [
-                            {
-                                "name": "auth",
-                                "mountPath": "/etc/opsani-servo-auth",
-                                "readOnly": True
-                            },
-                            {
-                                "name": "config",
-                                "mountPath": "/servo/config.yaml",
-                                "subPath": "config.yaml",
-                                "readOnly": True
-                            }
-                        ],
-                        "resources": {
-                            "limits": {
-                                "cpu": "250m",
-                                "memory": "256Mi"
-                            },
-                            "requests": {
-                                "cpu": "125m",
-                                "memory": "128Mi"
-                            }
-                        }
-                    }
-                ]
-            }
-        }
-    }
-}
-
 
 class Imb:
     def __init__(self):
@@ -284,9 +192,17 @@ class Imb:
         return interacted
         
     async def finish_discovery(self, run_stack):
-        # Generate servo deployment manifest
-        servo_secret['data']['token'] = b64encode(self.token.encode("utf-8")).decode('utf-8')
         Path('./servo-manifests').mkdir(exist_ok=True)
+        # Generate servo rbac manifest
+        servo_service_account['metadata']['namespace'] = self.k8sImb.namespace
+        servo_role['metadata']['namespace'] = self.k8sImb.namespace
+        servo_role_binding['metadata']['namespace'] = self.k8sImb.namespace
+        with open('servo-manifests/opsani-servo-rbac.yaml', 'w') as out_file:
+            yaml.dump_all([servo_service_account, servo_role, servo_role_binding], out_file, default_flow_style=False, sort_keys=False, width=1000)
+
+        # Generate servo deployment manifest
+        servo_secret['metadata']['namespace'] = self.k8sImb.namespace
+        servo_secret['data']['token'] = b64encode(self.token.encode("utf-8")).decode('utf-8')
         with open('servo-manifests/opsani-servo-auth.yaml', 'w') as out_file:
             yaml.dump(servo_secret, out_file, default_flow_style=False, sort_keys=False, width=1000)
 
@@ -306,6 +222,7 @@ class Imb:
             yaml.dump(servo_deployment, out_file, default_flow_style=False, sort_keys=False, width=1000)
 
         # Generate servo configmap (embed config.yaml document with multiline representer)
+        servo_configmap['metadata']['namespace'] = self.k8sImb.namespace
         servo_configmap['data']['config.yaml'] = multiline_str(yaml.dump(self.servoConfig, default_flow_style=False, width=1000))
         with open('servo-manifests/opsani-servo-configmap.yaml', 'w') as out_file:
             yaml.dump(servo_configmap, out_file, default_flow_style=False, sort_keys=False, width=1000)
