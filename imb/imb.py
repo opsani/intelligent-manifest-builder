@@ -240,7 +240,7 @@ Discovery complete. Run the following command:
     kubectl apply -f servo-manifests/ \\
         --namespace {namespace} \\
         --context {context}
-to configure and start Opsani servo and then open you web browser at
+to configure and start Opsani servo and then open your web browser at
     https://optune.ai/accounts/{account}/applications/{app}
 to observe the optimization process""".format(
             namespace=self.servo_namespace,
