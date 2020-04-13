@@ -103,14 +103,6 @@ class ImbKubernetes:
                     return None
                 self.deployment, self.deployment_name = deployments[desiredIndex], dep_names[desiredIndex]
 
-        # Get deployment as json (instead of client model), dump to yaml file
-        raw_dep_resp = self.apps_client.read_namespaced_deployment(name=self.deployment_name, namespace=self.namespace, _preload_content=False)
-        dep_obj = json.loads(raw_dep_resp.data)
-        dep_obj.pop('status', None)
-        Path('./app-manifests').mkdir(exist_ok=True)
-        with open('app-manifests/{}-depmanifest.yaml'.format(self.deployment_name), 'w') as out_file:
-            yaml.dump(dep_obj, out_file, default_flow_style=False)
-
         run_stack.append([self.select_containers, False])
         return interacted
 
@@ -171,12 +163,6 @@ class ImbKubernetes:
         tgtServices = [s for s in all_tgt_ns_services.items if s.spec.selector and all(( k in self.depLabels and self.depLabels[k] == v for k, v in s.spec.selector.items()))]
         for s in tgtServices:
             self.services.append(s)
-            # Dump service manifest(s)
-            raw_serv = self.core_client.read_namespaced_service(namespace=self.namespace, name=s.metadata.name, _preload_content=False)
-            serv_obj = json.loads(raw_serv.data)
-            serv_obj.pop('status', None)
-            with open('app-manifests/{}-servmanifest.yaml'.format(s.metadata.name), 'w') as out_file:
-                yaml.dump(serv_obj, out_file, default_flow_style=False)
 
         # Discover ingresses based on services
         all_tgt_ns_ingresses = self.exts_client.list_namespaced_ingress(namespace=self.namespace)
@@ -192,12 +178,6 @@ class ImbKubernetes:
         ))]
         for i in tgtIngresses:
             self.ingresses.append(i)
-            # Dump manifest(s)
-            raw_ing = self.exts_client.read_namespaced_ingress(namespace=self.namespace, name=i.metadata.name, _preload_content=False)
-            ing_obj = json.loads(raw_ing.data)
-            ing_obj.pop('status', None)
-            with open('app-manifests/{}-ingrmanifest.yaml'.format(i.metadata.name), 'w') as out_file:
-                yaml.dump(ing_obj, out_file, default_flow_style=False)
         
         # List services in all namespaces, check for prometheus
         all_ns_services = self.core_client.list_service_for_all_namespaces()
