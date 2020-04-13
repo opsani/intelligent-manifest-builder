@@ -24,6 +24,7 @@ class Imb:
         #   each method invoked in the run_stack is responsible for appending the next method to be called
         #   program exits when None is top of the stack
         self.run_stack = []
+        self.finished_message = None
 
     def run(self):
         self.ui = ImbTui()
@@ -38,7 +39,8 @@ class Imb:
         except asyncio.CancelledError:
             pass # UI exit handler cancels all tasks other than itself. Catch cancellation here for graceful exit
         else:
-            print('Discovery complete. Run "kubectl apply -f servo-manifests/" to launch a Servo deployment')
+            if self.finished_message:
+                print(self.finished_message)
         
         loop.close()
 
@@ -232,6 +234,20 @@ class Imb:
 
         with open('override.yaml', 'w') as out_file:
             yaml.dump(self.ocoOverride, out_file, sort_keys=False, width=1000)
+
+        self.finished_message = """\
+Discovery complete. Run the following command:
+    kubectl apply -f servo-manifests/ \\
+        --namespace {namespace} \\
+        --context {context}
+to configure and start Opsani servo and then open you web browser at
+    https://optune.ai/accounts/{account}/applications/{app}
+to observe the optimization process""".format(
+            namespace=self.servo_namespace,
+            context=self.k8sImb.context['name'],
+            account=self.opsani_account,
+            app=self.app_name
+        )
 
         run_stack.append(None) # done, exit here
         return False
