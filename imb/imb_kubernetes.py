@@ -23,35 +23,11 @@ class ImbKubernetes:
         # Get contexts, prompt
         contexts, _ = kubernetes.config.list_kube_config_contexts() # get active context from default kube config location
         radioValues = ['{} - {}'.format(c['name'], c['context']['cluster']) for c in contexts]
-        radioValues.append('Use a different kube config (current kube config path: {})'.format(self.kubeConfigPath))
         desiredIndex = await self.ui.prompt_radio_list(values=radioValues, title='Select Context of App to be Optimized', header='Context - Cluster:')
         if desiredIndex is None:
             return None
 
-        if desiredIndex == len(radioValues)-1:
-            run_stack.append([self.change_kube_config, True])
-            return True
-        else:
-            self.context = contexts[desiredIndex]
-            run_stack.append([self.select_namespace, False])
-            return True
-
-    async def change_kube_config(self, run_stack):
-        self.kubeConfigPath = await self.ui.prompt_text_input(title='Enter Kubeconfig Path', prompts=[{'prompt': 'Enter the file path of the desired Kubeconfig', 'initial_text': self.kubeConfigPath }])
-        if self.kubeConfigPath is None:
-            return None
-
-        run_stack.append([self.select_context_new_config, True])
-        return True
-
-    async def select_context_new_config(self, run_stack):
-        contexts, _ = kubernetes.config.list_kube_config_contexts(self.kubeConfigPath)
-        radioValues = ['{} - {}'.format(c['name'], c['context']['cluster']) for c in contexts]
-        desiredIndex = await self.ui.prompt_radio_list(values=radioValues, title='Select Context of App to be Optimized', header='Context - Cluster:')
-        if desiredIndex is None:
-            return None
         self.context = contexts[desiredIndex]
-
         run_stack.append([self.select_namespace, False])
         return True
 
