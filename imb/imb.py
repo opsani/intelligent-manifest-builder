@@ -72,6 +72,7 @@ class Imb:
                 while self.run_stack and self.run_stack[-1][1] == False:
                     self.run_stack.pop()
                 if not self.run_stack:
+                    self.finished_message = ["Exited due to Back selection on initial prompt"]
                     return # Backed out of the entire program, just exit here
             else:
                 # Update reference to method that was just run with bool; whether it was interacted with or not

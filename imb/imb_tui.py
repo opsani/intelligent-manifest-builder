@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import asyncio
+import atexit
 import sys
 assert sys.version_info >= (3, 6, 1), "Must be running on python >= 3.6.1. Found: {}".format(sys.version)
 
@@ -29,6 +30,8 @@ class ImbTui:
             for t in asyncio.Task.all_tasks():
                 if t != cur_task and not t.done():
                     t.cancel()
+
+            atexit.register(lambda : print("Exited due to ESC keypress"))
 
         # Allow member functions to access this frame to allow switching screens
         self.app_frame = Frame(title='Intelligent Manifest Builder', body=Window())
