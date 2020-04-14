@@ -83,7 +83,10 @@ class ImbPrometheus:
         # Get Deployment metrics
         self.query_labels = [ '{}="{}"'.format(k, v) for k, v in self.k8sImb.depLabels.items() ]
         get_metrics_query_text = 'sum by(__name__)({{ {} }})'.format(','.join(self.query_labels))
-        query_resp = requests.get(url=self.query_url, params={ 'query': get_metrics_query_text })
+        try:
+            query_resp = requests.get(url=self.query_url, params={ 'query': get_metrics_query_text })
+        except requests.exceptions.ConnectionError:
+            raise Exception('Failed to connect to local prometheus endpoint. Please try again or contact Opsani support')
 
         # Format data and prompt
         matching_metrics = query_resp.json()['data']['result']

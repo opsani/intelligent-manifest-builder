@@ -2,8 +2,11 @@
 
 import asyncio
 from base64 import b64encode
+import json
 import os
 from pathlib import Path
+import requests
+import sys
 import yaml
 
 from imb.imb_tui import ImbTui
@@ -24,7 +27,7 @@ class Imb:
         #   each method invoked in the run_stack is responsible for appending the next method to be called
         #   program exits when None is top of the stack
         self.run_stack = []
-        self.finished_message = None
+        self.finished_message = []
 
     def run(self):
         self.ui = ImbTui()
@@ -40,7 +43,7 @@ class Imb:
             pass # UI exit handler cancels all tasks other than itself. Catch cancellation here for graceful exit
         else:
             if self.finished_message:
-                print(self.finished_message)
+                print(' '.join(self.finished_message))
         
         loop.close()
 
@@ -116,7 +119,7 @@ class Imb:
         discoverProm = bool(self.k8sImb.prometheusService)
         if not discoverProm:
             interacted = True
-            discoverProm = await self.ui.promt_yn(title='Configure Prometheus Metrics?', prompt='Is there a prometheus deployment to discover metrics from?')
+            discoverProm = await self.ui.prompt_yn(title='Configure Prometheus Metrics?', prompt='Is there a prometheus deployment to discover metrics from?')
             if discoverProm is None:
                 return None
 
@@ -193,6 +196,61 @@ class Imb:
         else:
             self.token = self.imbConfig['token']
         
+        run_stack.append([self.push_override_config, False])
+        return interacted
+
+    async def push_override_config(self, run_stack):
+        interacted = False
+
+        with open('override.yaml', 'w') as out_file:
+            yaml.dump(self.ocoOverride, out_file, sort_keys=False, width=1000)
+
+        url=f"https://api.optune.ai/accounts/{self.opsani_account}/applications/{self.app_name}/config/"
+        headers={"Content-type": "application/merge-patch+json",
+            "Authorization": f"Bearer {self.token}"}
+        push_override = False
+        try:
+            response=requests.get(
+                url,
+                headers=headers
+            )
+            current_override = response.json()
+
+            if self.ocoOverride['measurement']['control']['duration'] != current_override['measurement']['control'].get('duration'):
+                push_override = True
+            if self.ocoOverride.get('optimization'):
+                if 'optimization' in current_override:
+                    if self.ocoOverride['optimization'].get('perf') and self.ocoOverride['optimization']['perf'] != current_override['optimization'].get('perf'):
+                        push_override = True
+                    
+                    if self.ocoOverride['optimization'].get('mode') and self.ocoOverride['optimization']['mode'] != current_override['optimization'].get('mode'):
+                        push_override = True
+                    
+                    if self.ocoOverride['optimization'].get('cost') and self.ocoOverride['optimization']['cost'] != current_override['optimization'].get('cost'):
+                        push_override = True
+                else:
+                    push_override = True
+        except Exception as e:
+            print('Unable to determine current state of OCO override config: {} \n\n{}'.format(e, response.text), file=sys.stderr)
+
+        if push_override:
+            interacted = True
+            push_override = await self.ui.prompt_yn(title="Push Config Override?", prompt="Do you wish to push OCO override config changes?")
+            if push_override:
+                params = {'patch': 'true'}
+                data = json.dumps(self.ocoOverride)
+                response=requests.put(
+                    url,
+                    params=params,
+                    headers=headers,
+                    data=data
+                )
+            else:
+                self.finished_message.append("""\
+Run
+    coctl put --file override.yaml
+to push the OCO config override.""")
+
         run_stack.append([self.finish_discovery, False])
         return interacted
         
@@ -232,22 +290,19 @@ class Imb:
         with open('servo-manifests/opsani-servo-configmap.yaml', 'w') as out_file:
             yaml.dump(servo_configmap, out_file, default_flow_style=False, sort_keys=False, width=1000)
 
-        with open('override.yaml', 'w') as out_file:
-            yaml.dump(self.ocoOverride, out_file, sort_keys=False, width=1000)
-
-        self.finished_message = """\
+        self.finished_message = ["""\
 Discovery complete. Run the following command:
     kubectl apply -f servo-manifests/ \\
         --namespace {namespace} \\
         --context {context}
 to configure and start Opsani servo and then open your web browser at
     https://optune.ai/accounts/{account}/applications/{app}
-to observe the optimization process""".format(
+to observe the optimization process.""".format(
             namespace=self.servo_namespace,
             context=self.k8sImb.context['name'],
             account=self.opsani_account,
             app=self.app_name
-        )
+        )] + self.finished_message
 
         run_stack.append(None) # done, exit here
         return False

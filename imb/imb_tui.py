@@ -46,7 +46,7 @@ class ImbTui:
     async def stop_ui(self):
         self.app.exit()
 
-    async def promt_yn(self, title, prompt):
+    async def prompt_yn(self, title, prompt):
         result = None
         input_done = asyncio.Event()
 
