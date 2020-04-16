@@ -1,8 +1,10 @@
+import asyncio
 import atexit
 import json
 from os.path import expanduser
 import requests
 import subprocess
+import time
 
 # Maps metric name to suggested config/perf name, query template and unit
 KNOWN_METRICS = {
@@ -12,9 +14,10 @@ KNOWN_METRICS = {
 }
 
 class ImbPrometheus:
-    def __init__(self, ui, finished_method, k8sImb, ocoOverride, servoConfig):
+    def __init__(self, ui, finished_method, finished_message, k8sImb, ocoOverride, servoConfig):
         self.ui = ui
         self.finished_method = finished_method
+        self.finished_message = finished_message
         self.k8sImb = k8sImb
         self.ocoOverride = ocoOverride
         self.servoConfig = servoConfig
@@ -39,22 +42,6 @@ class ImbPrometheus:
         try:
             requests.get(self.local_endpoint)
         except requests.exceptions.ConnectionError:
-            # Have to use subprocess because kubernetes-client/python does not support port forwarding of services:
-            #   https://github.com/kubernetes-client/python/issues/166#issuecomment-504216584
-            port_forward_proc = subprocess.Popen(
-                stdout=subprocess.DEVNULL,
-                args=['kubectl', 'port-forward', 
-                    '--kubeconfig', expanduser(self.k8sImb.kubeConfigPath),
-                    '--context', self.k8sImb.context['name'],
-                    '--namespace', self.k8sImb.prometheusService.metadata.namespace,
-                    'svc/{}'.format(self.k8sImb.prometheusService.metadata.name),
-                    str(self.k8sImb.prometheusService.spec.ports[0].port)])
-            def kill_proc():
-                if port_forward_proc.poll() is None:
-                    port_forward_proc.kill()
-            atexit.register(kill_proc)
-
-            self.port_forward_proc = port_forward_proc # set on the class here so that self is not passed into kill_proc enclosure above
             self.local_endpoint = 'http://localhost:{}'.format(self.k8sImb.prometheusService.spec.ports[0].port)
 
         run_stack.append([self.select_endpoints, False])
@@ -75,18 +62,83 @@ class ImbPrometheus:
         self.promConfig['prometheus_endpoint'] = self.prometheus_endpoint
         self.query_url = '{}/api/v1/query'.format(self.local_endpoint)
 
-        run_stack.append([self.select_deployment_metrics, False])
+        if 'localhost' in self.local_endpoint and self.k8sImb.prometheusService:
+            # Check if they've already opened a port forward
+            local_endpoint_reachable = True
+            try:
+                requests.get(self.local_endpoint)
+            except requests.exceptions.ConnectionError:
+                local_endpoint_reachable = False
+
+            if not local_endpoint_reachable:       
+                run_stack.append([self.prompt_port_forward, False])
+            else:
+                run_stack.append([self.select_deployment_metrics, False])
+        else:
+            run_stack.append([self.select_deployment_metrics, False])
+        
         return True
+
+    async def prompt_port_forward(self, run_stack):
+        # check for existing proc and kill in case we got here from going back
+        if self.port_forward_proc and self.port_forward_proc.poll() is None:
+            self.port_forward_proc.kill()
+
+        result = await self.ui.prompt_ok(
+            title="Ok to Port Forward?", 
+            prompt=["To optimize your service, Opsani requires access to Prometheus metrics.",
+                    "Because you have selected localhost for the discovery endpoint, Opsani", 
+                    "will use port forwarding to proxy access to Prometheus.",
+                    "If this is not acceptable, press the Escape key to exit now"]
+        )
+        if result is None:
+            return None
+
+        # Have to use subprocess because kubernetes-client/python does not support port forwarding of services:
+        #   https://github.com/kubernetes-client/python/issues/166#issuecomment-504216584
+        port_forward_proc = subprocess.Popen(
+            stdout=subprocess.DEVNULL,
+            args=['kubectl', 'port-forward', 
+                '--kubeconfig', expanduser(self.k8sImb.kubeConfigPath),
+                '--context', self.k8sImb.context['name'],
+                '--namespace', self.k8sImb.prometheusService.metadata.namespace,
+                'svc/{}'.format(self.k8sImb.prometheusService.metadata.name),
+                str(self.k8sImb.prometheusService.spec.ports[0].port)])
+        def kill_proc():
+            if port_forward_proc.poll() is None:
+                port_forward_proc.kill()
+        atexit.register(kill_proc)
+
+        self.port_forward_proc = port_forward_proc # set on the class here so that self is not passed into kill_proc enclosure above
+
+        run_stack.append([self.select_deployment_metrics, False])
+        return False # only prompting for accept here so skip over if going back
         
     async def select_deployment_metrics(self, run_stack):
         interacted = False
         # Get Deployment metrics
         self.query_labels = [ '{}="{}"'.format(k, v) for k, v in self.k8sImb.depLabels.items() ]
         get_metrics_query_text = 'sum by(__name__)({{ {} }})'.format(','.join(self.query_labels))
+
+        connect_attempts = 5
+        while connect_attempts > 0:
+            try:
+                query_resp = requests.get(url=self.query_url, params={ 'query': get_metrics_query_text }, timeout=0.25)
+                break
+            except requests.exceptions.ConnectionError:
+                connect_attempts -= 1
+                await asyncio.sleep(0.25)
+            except requests.exceptions.ReadTimeout:
+                connect_attempts -= 1
+
         try:
-            query_resp = requests.get(url=self.query_url, params={ 'query': get_metrics_query_text })
-        except requests.exceptions.ConnectionError:
-            raise Exception('Failed to connect to local prometheus endpoint. Please try again or contact Opsani support')
+            query_resp = requests.get(url=self.query_url, params={ 'query': get_metrics_query_text }, timeout=0.25)
+        except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout):
+            while self.finished_message:
+                self.finished_message.pop()
+            self.finished_message.append('Failed to connect to local prometheus endpoint. Please try again or contact Opsani support')
+            run_stack.append(None)
+            return False
 
         # Format data and prompt
         matching_metrics = query_resp.json()['data']['result']

@@ -92,6 +92,49 @@ class ImbTui:
         await input_done.wait()
         return result
 
+    # prompt-toolkit supports line wrapping but it disregards breaking of words across lines
+    # In cases where the text will span multiple lines, it should be divided up into an
+    # array of prompt lines where each line should be short enough to fit on the screen
+    async def prompt_ok(self, title, prompt):
+        result = None
+        input_done = asyncio.Event()
+
+        dialog_body = []
+        if isinstance(prompt, str):
+            dialog_body.append(Window(FormattedTextControl(prompt),height=1, align=WindowAlign.CENTER))
+        else:
+            for line in prompt:
+                dialog_body.append(Window(FormattedTextControl(line),height=1, align=WindowAlign.CENTER))
+
+        def ok_handler():
+            nonlocal result
+            result = True
+            input_done.set()
+
+        def back_handler():
+            input_done.set()
+
+        ok_dialog = Dialog(
+            title=title,
+            body=HSplit(dialog_body),
+            buttons=[
+                Button(text="Ok", handler=ok_handler),
+                Button(text="Back", handler=back_handler),
+            ],
+            modal=False,
+        )
+        # disable a_reverse style applied to dialogs
+        ok_dialog.container.container.content.style=""
+        self.app_frame.body = HSplit([
+            Window(),
+            ok_dialog,
+            Window(),
+        ])
+        self.app.invalidate()
+        self.app.layout.focus(self.app_frame)
+        await input_done.wait()
+        return result
+
     async def prompt_text_input(self, title, prompts):
         if len(prompts) == 1:
             result = None

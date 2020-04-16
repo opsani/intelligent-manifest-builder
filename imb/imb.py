@@ -115,28 +115,18 @@ class Imb:
         # self.servoConfig['k8s'] = k8sImb.servoConfig
 
     async def discover_measure(self, run_stack):
-        interacted = False
         # Run prometheus discovery
-        discoverProm = bool(self.k8sImb.prometheusService)
-        if not discoverProm:
-            interacted = True
-            discoverProm = await self.ui.prompt_yn(title='Configure Prometheus Metrics?', prompt='Is there a prometheus deployment to discover metrics from?')
-            if discoverProm is None:
-                return None
+        self.promImb = ImbPrometheus(
+            ui=self.ui, 
+            finished_method=self.discover_load,
+            finished_message=self.finished_message,
+            k8sImb=self.k8sImb, 
+            ocoOverride=self.ocoOverride,
+            servoConfig=self.servoConfig
+        )
 
-        if discoverProm:
-            self.promImb = ImbPrometheus(
-                ui=self.ui, 
-                finished_method=self.discover_load, 
-                k8sImb=self.k8sImb, 
-                ocoOverride=self.ocoOverride,
-                servoConfig=self.servoConfig
-            )
-            run_stack.append([self.promImb.run, False])
-        else:
-            run_stack.append([self.discover_load, False])
-
-        return interacted
+        run_stack.append([self.promImb.run, False])
+        return False
 
     async def discover_load(self, run_stack):
         if self.imbConfig.get('mode') == 'saturation':
