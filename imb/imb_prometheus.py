@@ -26,26 +26,53 @@ class ImbPrometheus:
         self.promConfig = { 'metrics': {} }
         self.depMetrics = {}
         # self.servMetrics = {}
+        self.remote_prometheus_used = False
 
     def __del__(self): # Ensure port forward is killed if prom discovery is backed out of and replaced by a new instance
         if self.port_forward_proc and self.port_forward_proc.poll() is None:
             self.port_forward_proc.kill()
 
     async def run(self, run_stack):
-        # Check if endpoint is accessible, port forward if its not
-        self.prometheus_endpoint = 'http://{}.{}.svc:{}'.format(
-            self.k8sImb.prometheusService.metadata.name,
-            self.k8sImb.prometheusService.metadata.namespace,
-            self.k8sImb.prometheusService.spec.ports[0].port
-        )
-        self.local_endpoint = self.prometheus_endpoint
-        try:
-            requests.get(self.local_endpoint)
-        except requests.exceptions.ConnectionError:
-            self.local_endpoint = 'http://localhost:{}'.format(self.k8sImb.prometheusService.spec.ports[0].port)
+        if self.k8sImb.prometheusService:
+            # Check if endpoint is accessible, port forward if its not
+            self.prometheus_endpoint = 'http://{}.{}.svc:{}'.format(
+                self.k8sImb.prometheusService.metadata.name,
+                self.k8sImb.prometheusService.metadata.namespace,
+                self.k8sImb.prometheusService.spec.ports[0].port
+            )
+            self.local_endpoint = self.prometheus_endpoint
+            try:
+                requests.get(self.local_endpoint)
+            except requests.exceptions.ConnectionError:
+                self.local_endpoint = 'http://localhost:{}'.format(self.k8sImb.prometheusService.spec.ports[0].port)
 
-        run_stack.append([self.select_endpoints, False])
-        return False
+            run_stack.append([self.select_endpoints, False])
+            return False
+        else:
+            self.prometheus_endpoint = ''
+            self.local_endpoint = ''
+
+            desired_index = await self.ui.prompt_radio_list(
+                title='Prometheus not Found',
+                header='We were unable to locate a prometheus deployment in kubernetes. Would you like to...',
+                values=[
+                    'Point IMB to a remote prometheus deployment',
+                    'Install a simple prometheus deployment in order to gather application metrics'
+                ]
+            )
+
+            if desired_index is None:
+                return None
+            elif desired_index == 0:
+                self.remote_prometheus_used = True
+                run_stack.append([self.select_endpoints, False])
+                return True
+            else: # desired_index == 1
+                while self.finished_message:
+                    self.finished_message.pop()
+                self.finished_message.append("Visit https://github.com/opsani/simple-prometheus-installation for instructions on a simple Prometheus installation")
+                run_stack.append(None)
+                return False
 
     async def select_endpoints(self, run_stack):
         # prompt for endpoint
@@ -136,7 +163,10 @@ class ImbPrometheus:
         except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout):
             while self.finished_message:
                 self.finished_message.pop()
-            self.finished_message.append('Failed to connect to local prometheus endpoint. Please try again or contact Opsani support')
+            if self.remote_prometheus_used:
+                self.finished_message.append('Extra configuration will be needed to allow Servo to talk to your Prometheus instance, please contact Opsani for further assistance')
+            else:
+                self.finished_message.append('Failed to connect to local prometheus endpoint. Please try again or contact Opsani support for further assistance')
             run_stack.append(None)
             return False
 
