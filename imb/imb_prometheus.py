@@ -172,6 +172,13 @@ class ImbPrometheus:
 
         # Format data and prompt
         matching_metrics = query_resp.json()['data']['result']
+        if not matching_metrics:
+            while self.finished_message:
+                self.finished_message.pop()
+            self.finished_message.append('Unable to locate metrics that match your deployment in your Prometheus instance, please contact Opsani for further assistance')
+            run_stack.append(None)
+            return False
+
         matching_metrics_names = [ m['metric']['__name__'] for m in matching_metrics ]
         matching_known_metrics = [m for m in matching_metrics_names if m in KNOWN_METRICS]
 
