@@ -106,6 +106,7 @@ class Imb:
         self.k8sImb = ImbKubernetes(
             ui=self.ui, 
             finished_method=self.discover_measure,
+            finished_message=self.finished_message,
             imbConfig=self.imbConfig,
             ocoOverride=self.ocoOverride,
             servoConfig=self.servoConfig

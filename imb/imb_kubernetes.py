@@ -8,9 +8,10 @@ import yaml
 EXCLUDED_NAMESPACES = ['kube-node-lease', 'kube-public', 'kube-system']
 
 class ImbKubernetes:
-    def __init__(self, ui, finished_method, imbConfig, ocoOverride, servoConfig):
+    def __init__(self, ui, finished_method, finished_message, imbConfig, ocoOverride, servoConfig):
         self.ui = ui
         self.finished_method = finished_method
+        self.finished_message = finished_message
         self.imbConfig = imbConfig
         self.ocoOverride = ocoOverride
         self.servoConfig = servoConfig
@@ -21,7 +22,21 @@ class ImbKubernetes:
         self.k8sConfig = {'application': {'components': {}}}
         self.kubeConfigPath = kubernetes.config.kube_config.KUBE_CONFIG_DEFAULT_LOCATION
         # Get contexts, prompt
-        contexts, _ = kubernetes.config.list_kube_config_contexts() # get active context from default kube config location
+        try:
+            contexts, _ = kubernetes.config.list_kube_config_contexts() # get active context from default kube config location
+        except kubernetes.config.config_exception.ConfigException as e:
+            while self.finished_message:
+                self.finished_message.pop()
+            if 'Invalid kube-config file. No configuration found.' in str(e):
+                self.finished_message.append('IMB was unable to locate a kubernetes config at the location {}. Please ensure you have a valid kubeconfig on this host'.format(self.kubeConfigPath))
+            elif 'Invalid kube-config file. Expected object with name  in' in str(e) and 'config/contexts list' in str(e):
+                self.finished_message.append('The kubernetes config located at {} contained no contexts. Please ensure you have a valid kubeconfig on this host'.format(self.kubeConfigPath))
+            else:
+                self.finished_message.append(str(e))
+
+            run_stack.append(None)
+            return False
+
         radioValues = ['{} - {}'.format(c['name'], c['context']['cluster']) for c in contexts]
         desiredIndex = await self.ui.prompt_radio_list(values=radioValues, title='Select Context of App to be Optimized', header='Context - Cluster:')
         if desiredIndex is None:
