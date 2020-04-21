@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup ( name='imb',
   version='0.1.0',
   py_modules=[
-      'imb.imb',
+      'imb.imb_main',
       'imb.imb_tui',
       'imb.imb_kubernetes',
       'imb.imb_prometheus',
@@ -18,6 +18,6 @@ setup ( name='imb',
   ],
   entry_points='''
     [console_scripts]
-    imb=imb.imb:imb
+    imb=imb.imb_main:imb
     '''
 )
