@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import requests
 import sys
+from traceback import format_exc
 import yaml
 
 from imb.imb_tui import ImbTui
@@ -23,7 +24,7 @@ yaml.add_representer(multiline_str, multiline_str_representer)
 
 class Imb:
     def __init__(self):
-        # list of lists. sublist contains two items: 0-> method to run 1-> whether it prompted for user interaction
+        # list of methods to run
         #   each method invoked in the run_stack is responsible for appending the next method to be called
         #   program exits when None is top of the stack
         self.run_stack = []
@@ -47,38 +48,79 @@ class Imb:
         
         loop.close()
 
+    async def read_state(self):
+        try:
+            with open('discovery.yaml', 'r') as in_file:
+                self.app_state = yaml.safe_load(in_file)['state']
+        except FileNotFoundError:
+            self.app_state = {}
+
+        if self.app_state:
+            # Note this prompt is not added to the run_stack because going back deletes state data so if the user were to back all the 
+            #   way to this prompt, there would no longer be state data to resume from
+            resume = await self.ui.prompt_yn(title="Resume Previous Discovery?", prompt="We found a discovery.yaml from a previous run, would you like to resume that run?")
+            if resume is None: # Back selected
+                self.finished_message = ["Exited due to Back selection on recovery prompt"]
+                self.run_stack = [None] # Exit program without doing anything
+            elif not resume:
+                self.app_state = {}
+
+    def write_state(self, formatted_exception=None):
+        output = { 'state': self.app_state }
+        if formatted_exception:
+            output['error'] = multiline_str(formatted_exception)
+    
+        with open('discovery.yaml', 'w') as out_file:
+            yaml.dump(output, out_file, sort_keys=False, width=1000)
+
     async def main(self):
         try:
-            # append first method onto run stack and start executing run_stack
-            self.run_stack.append([self.initialize_discovery, False])
-            await self.execute_run_stack()
+            await self.ui.init_done.wait() # wait for UI to be ready before doing anything with it
+            # append first method onto run stack
+            self.call_next(self.initialize_discovery)
+            await self.read_state()
+
+            await self.execute_run_stack() # start run_stack after read_state in case user backs out there
+
+            if self.run_stack != [None]:
+                self.write_state() # write out discovery.yaml
+
             # Shut down UI when finished
             await self.ui.stop_ui() 
         except asyncio.CancelledError:
+            self.write_state()
             raise # don't try to stop the UI when cancelled. Cancel likely came from UI exit handler which already called exit on itself
         except Exception: # stop UI to restore terminal before printing exception
+            self.write_state(format_exc())
             await self.ui.stop_ui()
-            raise
+            self.finished_message = ["IMB has encountered an unexpected circumstance. Please reach out to Opsani support with a copy of your discovery.yaml cache file"]
+            # raise # no longer need to raise since exception info is captured in write_state
 
     async def execute_run_stack(self):
         while self.run_stack[-1] is not None:
-            # Store reference to current method
-            current = self.run_stack[-1]
-            # Run method and capture whether it was interacted with (or back was selected)
-            interaction = await current[0](self.run_stack)
+            current_method = self.run_stack[-1]
+            # Run method and capture discovered data including whether it was interacted with
+            state_data = await current_method(self.call_next, self.app_state.get(current_method.__qualname__))
+
             # Methods return None when go back is selected
-            if interaction is None:
+            if state_data is None:
                 self.run_stack.pop()
-                while self.run_stack and self.run_stack[-1][1] == False:
+                while self.run_stack and self.app_state[self.run_stack[-1].__qualname__]['interacted'] == False:
+                    self.app_state.pop(self.run_stack[-1].__qualname__)
                     self.run_stack.pop()
                 if not self.run_stack:
                     self.finished_message = ["Exited due to Back selection on initial prompt"]
                     return # Backed out of the entire program, just exit here
+                else:
+                    self.app_state.pop(self.run_stack[-1].__qualname__) # remove new current method's app_state on back to prevent 'resume run' logic
             else:
-                # Update reference to method that was just run with bool; whether it was interacted with or not
-                current[1] = interaction
+                # Update app_state with data from method that was just run including bool for whether it was interacted with or not
+                self.app_state[current_method.__qualname__] = state_data
 
-    async def initialize_discovery(self, run_stack):
+    def call_next(self, method):
+        self.run_stack.append(method)
+
+    async def initialize_discovery(self, call_next, state_data):
         self.servoConfig = {}
         self.ocoOverride = {
             'adjustment': { 'control': {} },
@@ -96,12 +138,11 @@ class Imb:
         except FileNotFoundError:
             self.imbConfig = {}
 
-        await self.ui.init_done.wait() # wait for UI to be ready before doing anything with it
         # Queue up next method and return False for no interaction
-        run_stack.append([self.discover_adjust, False])
-        return False
+        call_next(self.discover_adjust)
+        return {'interacted': False}
 
-    async def discover_adjust(self, run_stack):
+    async def discover_adjust(self, call_next, state_data):
         # Run k8s imb by default for now
         self.k8sImb = ImbKubernetes(
             ui=self.ui, 
@@ -111,11 +152,10 @@ class Imb:
             ocoOverride=self.ocoOverride,
             servoConfig=self.servoConfig
         )
-        run_stack.append([self.k8sImb.run, False])
-        return False
-        # self.servoConfig['k8s'] = k8sImb.servoConfig
+        call_next(self.k8sImb.run)
+        return {'interacted': False}
 
-    async def discover_measure(self, run_stack):
+    async def discover_measure(self, call_next, state_data):
         # Run prometheus discovery
         self.promImb = ImbPrometheus(
             ui=self.ui, 
@@ -126,10 +166,10 @@ class Imb:
             servoConfig=self.servoConfig
         )
 
-        run_stack.append([self.promImb.run, False])
-        return False
+        call_next(self.promImb.run)
+        return {'interacted': False}
 
-    async def discover_load(self, run_stack):
+    async def discover_load(self, call_next, state_data):
         if self.imbConfig.get('mode') == 'saturation':
             # Run imb vegeta as default load gen for now
             self.vegImb = ImbVegeta(
@@ -139,47 +179,54 @@ class Imb:
                 ocoOverride=self.ocoOverride,
                 servoConfig=self.servoConfig
             )
-            run_stack.append([self.vegImb.run, False])
+            call_next(self.vegImb.run)
         else:
-            run_stack.append([self.select_servo, False])
-        return False
+            call_next(self.select_servo)
+        return {'interacted': False}
 
-    async def select_servo(self, run_stack):
-        # TODO: logic to actually recommend a servo image based on discovery
-        self.recommended_servo_image = 'opsani/servo-k8s-prom-vegeta:latest'
-        self.servo_namespace = self.k8sImb.namespace
+    async def select_servo(self, call_next, state_data):
+        if not state_data:
+            state_data = {
+                'interacted': True,
+                'recommended_servo_image': 'opsani/servo-k8s-prom-vegeta:latest', # TODO: logic to actually recommend a servo image based on discovery
+                'servo_namespace': self.k8sImb.namespace
+            }
 
-        if self.imbConfig.get('app') and self.imbConfig.get('account'):
-            self.app_name, self.opsani_account = self.imbConfig['app'], self.imbConfig['account']
-            self.recommended_servo_image, self.servo_namespace = await self.ui.prompt_text_input(
-                title='Servo Info',
-                prompts=[
-                    {'prompt': 'The following Servo image has been selected. Edit below to override with a different image', 'initial_text': self.recommended_servo_image},
-                    {'prompt': 'Please enter the namespace to which servo should be deployed', 'initial_text': self.servo_namespace}
-                ]
-            )
-            if self.recommended_servo_image is None or self.servo_namespace is None:
-                return None
-        else:
-            self.recommended_servo_image, self.servo_namespace, self.opsani_account, self.app_name = await self.ui.prompt_text_input(
-                title='Servo Info',
-                prompts=[
-                    {'prompt': 'The following Servo image has been selected. Edit below to override with a different image', 'initial_text': self.recommended_servo_image},
-                    {'prompt': 'Please enter the namespace to which servo should be deployed', 'initial_text': self.servo_namespace},
-                    {'prompt': 'Please enter the name of your Optune account', 'initial_text': self.imbConfig['account'] if self.imbConfig.get('account') else ''},
-                    {'prompt': 'Please enter the name of the application to be optimized as it appears in Optune', 'initial_text': self.imbConfig['app'] if self.imbConfig.get('app') else ''}
-                ]
-            )
-            if self.recommended_servo_image is None or self.servo_namespace is None or self.opsani_account is None or self.app_name is None:
-                return None
+            if self.imbConfig.get('app') and self.imbConfig.get('account'):
+                state_data['app_name'], state_data['opsani_account'] = self.imbConfig['app'], self.imbConfig['account']
+                state_data['recommended_servo_image'], state_data['servo_namespace'] = await self.ui.prompt_text_input(
+                    title='Servo Info',
+                    prompts=[
+                        {'prompt': 'The following Servo image has been selected. Edit below to override with a different image', 'initial_text': state_data['recommended_servo_image']},
+                        {'prompt': 'Please enter the namespace to which servo should be deployed', 'initial_text': state_data['servo_namespace']}
+                    ]
+                )
+                if state_data['recommended_servo_image'] is None or state_data['servo_namespace'] is None:
+                    return None
+            else:
+                state_data['recommended_servo_image'], state_data['servo_namespace'], state_data['opsani_account'], state_data['app_name'] = await self.ui.prompt_text_input(
+                    title='Servo Info',
+                    prompts=[
+                        {'prompt': 'The following Servo image has been selected. Edit below to override with a different image', 'initial_text': state_data['recommended_servo_image']},
+                        {'prompt': 'Please enter the namespace to which servo should be deployed', 'initial_text': state_data['servo_namespace']},
+                        {'prompt': 'Please enter the name of your Optune account', 'initial_text': self.imbConfig.get('account', '')},
+                        {'prompt': 'Please enter the name of the application to be optimized as it appears in Optune', 'initial_text': self.imbConfig.get('app', '')}
+                    ]
+                )
+                if state_data['recommended_servo_image'] is None or state_data['servo_namespace'] is None or state_data['opsani_account'] is None or state_data['app_name'] is None:
+                    return None
 
-        run_stack.append([self.enter_token, False])
-        return True
+        self.recommended_servo_image, self.servo_namespace, self.opsani_account, self.app_name =\
+            state_data['recommended_servo_image'], state_data['servo_namespace'], state_data['opsani_account'], state_data['app_name']
+    
+        call_next(self.enter_token)
+        return state_data
 
-    async def enter_token(self, run_stack):
-        interacted = False
+    async def enter_token(self, call_next, state_data):
+        # NOTE: token isn't cached
+        state_data = { 'interacted': False }
         if not self.imbConfig.get('token'):
-            interacted = True
+            state_data['interacted'] = True
             self.token = await self.ui.prompt_text_input(title='Servo Auth Token', prompts=[
                     {'prompt': 'Please enter your Opsani provided Servo auth token below' }
                 ])
@@ -188,65 +235,71 @@ class Imb:
         else:
             self.token = self.imbConfig['token']
         
-        run_stack.append([self.push_override_config, False])
-        return interacted
+        call_next(self.push_override_config)
+        return state_data
 
-    async def push_override_config(self, run_stack):
-        interacted = False
+    async def push_override_config(self, call_next, state_data):
+        if not state_data:
+            state_data = { 'interacted': False }
 
-        with open('override.yaml', 'w') as out_file:
-            yaml.dump(self.ocoOverride, out_file, sort_keys=False, width=1000)
+            with open('override.yaml', 'w') as out_file:
+                yaml.dump(self.ocoOverride, out_file, sort_keys=False, width=1000)
 
-        url=f"https://api.optune.ai/accounts/{self.opsani_account}/applications/{self.app_name}/config/"
-        headers={"Content-type": "application/merge-patch+json",
-            "Authorization": f"Bearer {self.token}"}
-        push_override = False
-        try:
-            response=requests.get(
-                url,
-                headers=headers
-            )
-            current_override = response.json()
-
-            if self.ocoOverride['measurement']['control']['duration'] != current_override['measurement']['control'].get('duration'):
-                push_override = True
-            if self.ocoOverride.get('optimization'):
-                if 'optimization' in current_override:
-                    if self.ocoOverride['optimization'].get('perf') and self.ocoOverride['optimization']['perf'] != current_override['optimization'].get('perf'):
-                        push_override = True
-                    
-                    if self.ocoOverride['optimization'].get('mode') and self.ocoOverride['optimization']['mode'] != current_override['optimization'].get('mode'):
-                        push_override = True
-                    
-                    if self.ocoOverride['optimization'].get('cost') and self.ocoOverride['optimization']['cost'] != current_override['optimization'].get('cost'):
-                        push_override = True
-                else:
-                    push_override = True
-        except Exception as e:
-            print('Unable to determine current state of OCO override config: {} \n\n{}'.format(e, response.text), file=sys.stderr)
-
-        if push_override:
-            interacted = True
-            push_override = await self.ui.prompt_yn(title="Push Config Override?", prompt="Do you wish to push OCO override config changes?")
-            if push_override:
-                params = {'patch': 'true'}
-                data = json.dumps(self.ocoOverride)
-                response=requests.put(
+            url=f"https://api.optune.ai/accounts/{self.opsani_account}/applications/{self.app_name}/config/"
+            headers={"Content-type": "application/merge-patch+json",
+                "Authorization": f"Bearer {self.token}"}
+            push_override = False
+            try:
+                response=requests.get(
                     url,
-                    params=params,
-                    headers=headers,
-                    data=data
+                    headers=headers
                 )
-            else:
-                self.finished_message.append("""\
+                current_override = response.json()
+
+                if self.ocoOverride['measurement']['control']['duration'] != current_override['measurement']['control'].get('duration'):
+                    push_override = True
+                if self.ocoOverride.get('optimization'):
+                    if 'optimization' in current_override:
+                        if self.ocoOverride['optimization'].get('perf') and self.ocoOverride['optimization']['perf'] != current_override['optimization'].get('perf'):
+                            push_override = True
+                        
+                        if self.ocoOverride['optimization'].get('mode') and self.ocoOverride['optimization']['mode'] != current_override['optimization'].get('mode'):
+                            push_override = True
+                        
+                        if self.ocoOverride['optimization'].get('cost') and self.ocoOverride['optimization']['cost'] != current_override['optimization'].get('cost'):
+                            push_override = True
+                    else:
+                        push_override = True
+            except Exception as e:
+                print('Unable to determine current state of OCO override config: {} \n\n{}'.format(e, response.text), file=sys.stderr)
+
+            if push_override:
+                state_data['interacted'] = True
+                push_override = await self.ui.prompt_yn(title="Push Config Override?", prompt="Do you wish to push OCO override config changes?")
+                if push_override is None:
+                    return None
+                if push_override:
+                    params = {'patch': 'true'}
+                    data = json.dumps(self.ocoOverride)
+                    response=requests.put(
+                        url,
+                        params=params,
+                        headers=headers,
+                        data=data
+                    )
+                else:
+                    state_data['finished_message_addon'] = """\
 Run
     coctl put --file override.yaml
-to push the OCO config override.""")
+to push the OCO config override."""
 
-        run_stack.append([self.finish_discovery, False])
-        return interacted
+        if state_data.get('finished_message_addon') and state_data['finished_message_addon'] not in self.finished_message:
+            self.finished_message.append(state_data['finished_message_addon'])
+
+        call_next(self.finish_discovery)
+        return state_data
         
-    async def finish_discovery(self, run_stack):
+    async def finish_discovery(self, call_next, state_data):
         Path('./servo-manifests').mkdir(exist_ok=True)
         # Generate servo rbac manifest
         servo_service_account['metadata']['namespace'] = self.servo_namespace
@@ -282,6 +335,10 @@ to push the OCO config override.""")
         with open('servo-manifests/opsani-servo-configmap.yaml', 'w') as out_file:
             yaml.dump(servo_configmap, out_file, default_flow_style=False, sort_keys=False, width=1000)
 
+        result = await self.ui.prompt_ok('Discovery Complete', prompt='Press Enter to exit or select Back to change details')
+        if result is None:
+            return None
+
         self.finished_message = ["""\
 Discovery complete. Run the following command:
     kubectl apply -f servo-manifests/ \\
@@ -296,8 +353,8 @@ to observe the optimization process.""".format(
             app=self.app_name
         )] + self.finished_message
 
-        run_stack.append(None) # done, exit here
-        return False
+        call_next(None) # done, exit here
+        return {}
 
 def imb():
     Imb().run()
