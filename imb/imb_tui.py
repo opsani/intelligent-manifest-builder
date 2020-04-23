@@ -34,7 +34,7 @@ class ImbTui:
             atexit.register(lambda : print("Exited due to ESC keypress"))
 
         # Allow member functions to access this frame to allow switching screens
-        self.app_frame = Frame(title='Intelligent Manifest Builder', body=Window())
+        self.app_frame = Frame(title='Opsani Intelligent Manifest Builder', body=Window())
         self.app = Application(
             full_screen=True,
             key_bindings=kb,
