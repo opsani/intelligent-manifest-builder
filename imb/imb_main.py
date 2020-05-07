@@ -183,34 +183,39 @@ class Imb:
                 self.other_info.pop('error_method', None)
                 return True
 
-        call_next(None) # TODO: prompt to upload discovery.yaml
+        self.finished_message = ["Unable to complete discovery. Please reach out to Opsani support for further assistance"]
+
+        call_next(None)
 
     async def prompt_other(self, call_next, state_data):
-        if not state_data:
-            state_data['interacted'] = False
+        # if not state_data: # Run every time since this is a final prompt
+        state_data['interacted'] = False
 
-            # populate with previous value stored on class if the user backs up to this prompt
-            initial_text = self.other_info.get('other_text', '')
-            result = await self.ui.prompt_multiline_text_input(
-                title='Other Information', 
-                prompt='Please use the field below to describe your desired configuration',
-                initial_text=initial_text)
-            state_data['interacted'] = True
-            if result.back_selected:
-                # If user previously completed this prompt then backs up to it and selects back again
-                #  data from the prompt will still be stored on the class. Its removed here so it doesn't 
-                #  continue to show up in discovery.yaml if the user doesn't select Other on the prompt before this one
-                self.other_info.pop('other_text', None)
-                self.other_info.pop('missing_info', None)
-                return True
+        # populate with previous value stored on class if the user backs up to this prompt
+        initial_text = state_data.get('other_text', '')
+        result = await self.ui.prompt_multiline_text_input(
+            title='Other Information', 
+            prompt='Please use the field below to describe your desired configuration',
+            initial_text=initial_text)
+        state_data['interacted'] = True
+        if result.back_selected:
+            # If user previously completed this prompt then backs up to it and selects back again
+            #  data from the prompt will still be stored on the class. Its removed here so it doesn't 
+            #  continue to show up in discovery.yaml if the user doesn't select Other on the prompt before this one
+            self.other_info.pop('other_text', None)
+            self.other_info.pop('missing_info', None)
+            return True
 
-            state_data['missing_info'] = list(self.missing_info)
-            state_data['other_text'] = result.value
+        state_data['missing_info'] = list(self.missing_info)
+        state_data['other_text'] = result.value
 
         self.other_info['missing_info'] = state_data['missing_info']
         self.other_info['other_text'] = state_data['other_text']
 
-        call_next(None) # TODO: prompt to upload discovery.yaml
+        self.finished_message = ["Partial discovery completed. Please reach out to Opsani support for assistance in completing"
+            " the discovery process"]
+
+        call_next(None)
 
     async def execute_run_stack(self):
         while self.run_stack[-1] is not None:
@@ -492,7 +497,11 @@ to push the OCO config override."""
             return True
         state_data['interacted'] = True
 
-        self.finished_message = ["""\
+        if any(mod.other_info.get('missing_info') for mod in self.imb_modules):
+            self.finished_message = ["Partial discovery completed. Please reach out to Opsani support for assistance in completing configuration of"
+                " the manifests contained in the servo-manifests folder"]
+        else:
+            self.finished_message = ["""\
 Discovery complete. Run the following command:
     kubectl apply -f servo-manifests/ \\
         --namespace {namespace} \\
@@ -500,11 +509,11 @@ Discovery complete. Run the following command:
 to configure and start Opsani servo and then open your web browser at
     https://optune.ai/accounts/{account}/applications/{app}
 to observe the optimization process.""".format(
-            namespace=self.servo_namespace,
-            context=self.k8sImb.context['name'],
-            account=self.opsani_account,
-            app=self.app_name
-        )] + self.finished_message
+                namespace=self.servo_namespace,
+                context=self.k8sImb.context['name'],
+                account=self.opsani_account,
+                app=self.app_name
+            )] + self.finished_message
 
         call_next(None) # done, exit here
 

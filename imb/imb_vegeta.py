@@ -94,6 +94,9 @@ class ImbVegeta:
         if not state_data:
             state_data['interacted'] = False
 
+            if not self.k8sImb.services:
+                raise Exception('Unable to discover load generation endpoint. No matching services were found during kubernetes discovery')
+
             app_load_endpoints = []
             for serv in self.k8sImb.services:
                 app_load_endpoints.append({'url': 'http://{}.{}.svc:{}'.format(

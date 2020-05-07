@@ -27,6 +27,9 @@ class ImbKubernetes:
         # Assign defaults to properties referenced externally in case they don't get set because of Other selection or error
         self.prometheusService = None
         self.namespace = ''
+        self.depLabels = {}
+        self.services = []
+        self.ingresses = []
 
     # Update info used in Other/Error handling
     def on_forward(self, state_data): # run when method completes
@@ -215,6 +218,10 @@ class ImbKubernetes:
             if self.deployment is None:
                 raise Exception('App State data expired, can no longer find deployment matching cached name {}'.format(self.deployment_name))
 
+            self.depLabels = self.deployment.spec.selector.match_labels
+            if not self.depLabels:
+                raise Exception('Target deployment has no matchLabels selector')
+
             call_next(self.select_containers)
 
     async def select_containers(self, call_next, state_data):
@@ -281,9 +288,6 @@ class ImbKubernetes:
     async def finish_discovery(self, call_next, state_data):
         state_data['interacted'] = False
         # Discover services based on deployment selector labels
-        self.depLabels = self.deployment.spec.selector.match_labels
-        if not self.depLabels:
-            raise Exception('Target deployment has no matchLabels selector')
         all_tgt_ns_services = self.core_client.list_namespaced_service(namespace=self.namespace)
         self.services = [s for s in all_tgt_ns_services.items if s.spec.selector and all(( k in self.depLabels and self.depLabels[k] == v for k, v in s.spec.selector.items()))]
 

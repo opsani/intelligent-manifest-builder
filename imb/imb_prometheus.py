@@ -249,6 +249,10 @@ class ImbPrometheus:
         call_next(self.select_deployment_metrics)
         
     async def select_deployment_metrics(self, call_next, state_data):
+        if not self.k8sImb.depLabels:
+            # TODO: new prompt for the desired labels?
+            raise Exception('Unable to discover metrics, selector labels were not discovered during kubernetes section')
+
         self.query_labels = [ '{}="{}"'.format(k, v) for k, v in self.k8sImb.depLabels.items() ]
     
         if not state_data:
