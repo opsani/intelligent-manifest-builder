@@ -418,9 +418,12 @@ class Imb:
                             push_override = True
                     else:
                         push_override = True
-            except Exception as e:
-                print('Unable to determine current state of OCO override config: {} \n\n{}'.format(e, response.text), file=sys.stderr)
-                pass
+            except:
+                self.other_info.setdefault('non-critical-errors', {})['OCO Read Error'] = {
+                    'reason': 'Unable to determine current state of OCO override config',
+                    'error': imb_yaml.multiline_str(format_exc()),
+                    'OCO response': imb_yaml.multiline_str(response.text)
+                }
 
             if push_override:
                 state_data['interacted'] = True
