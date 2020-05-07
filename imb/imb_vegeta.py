@@ -154,7 +154,8 @@ class ImbVegeta:
                 title='Load Generation Configuration',
                 prompts=[
                     {'prompt': 'Duration of load generation', 'initial_text': '5m'}
-                ]
+                ],
+                allow_other=True
             )
             state_data['interacted'] = True
             if result.back_selected:
