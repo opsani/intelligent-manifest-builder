@@ -112,24 +112,44 @@ class Imb:
                 # TODO: send to oco ('TELEMETRY' event)
                 url=f"https://api.optune.ai/accounts/{self.opsani_account}/applications/{self.app_name}/config/"
                 headers={
-                    "Content-type": "application/merge-patch+json",
+                    "Content-type": "application/json",
                     "Authorization": f"Bearer {self.token}"}
-                params = {'patch': 'true'}
-                payload = {'adjustment': {'userdata': {'imb': output }}}
-                response=requests.put(
+                response=requests.get(
                     url,
-                    params=params,
-                    headers=headers,
-                    json=payload
+                    headers=headers
                 )
-                if not response.ok:
-                    output['oco-config-write-error-code'] = response.status_code
-                    output['oco-config-write-error-text'] = response.text
+                if response.ok:
+                    json_parse_error = None
+                    try:
+                        current_override = response.json()
+                    except:
+                        json_parse_error = format_exc()
+
+                if not response.ok or json_parse_error:
+                    output['oco-config-get-response-code'] = response.status_code
+                    output['oco-config-get-response-text'] = response.text
+                    if json_parse_error:
+                        output['oco-config-get-json-error'] = imb_yaml.multiline_str(json_parse_error)
                     with open('discovery.yaml', 'w') as out_file:
                         imb_yaml.dump(output, out_file)
                     self.finished_message = [
                             'Failed to push discovery telemetry to OCO config. Please reach out to opsani with a copy of your discovery.yaml telemetry file.'
                         ] + self.finished_message
+                else:
+                    current_override.setdefault('adjustment', {}).setdefault('userdata', {})['imb'] = output
+                    response=requests.put(
+                        url,
+                        headers=headers,
+                        json=current_override
+                    )
+                    if not response.ok:
+                        output['oco-config-write-error-code'] = response.status_code
+                        output['oco-config-write-error-text'] = response.text
+                        with open('discovery.yaml', 'w') as out_file:
+                            imb_yaml.dump(output, out_file)
+                        self.finished_message = [
+                                'Failed to push discovery telemetry to OCO config. Please reach out to opsani with a copy of your discovery.yaml telemetry file.'
+                            ] + self.finished_message
 
                 url=f'https://api.opsani.com/accounts/{self.opsani_account}/applications/{self.app_name}/servo'
                 headers.pop('Content-type')
