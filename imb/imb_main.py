@@ -136,7 +136,7 @@ class Imb:
                 payload = {'event': 'TELEMETRY', 'param': output }
                 response=requests.post(
                     url,
-                    headers,
+                    headers=headers,
                     json=payload
                 )
                 if not response.ok:
