@@ -128,7 +128,7 @@ class Imb:
                     with open('discovery.yaml', 'w') as out_file:
                         imb_yaml.dump(output, out_file)
                     self.finished_message = [
-                            'Failed to push discovery telemetry to OCO config. Please reach out to opsani with a copy of your discovery.yaml telemetry file'
+                            'Failed to push discovery telemetry to OCO config. Please reach out to opsani with a copy of your discovery.yaml telemetry file.'
                         ] + self.finished_message
 
                 url=f'https://api.opsani.com/accounts/{self.opsani_account}/applications/{self.app_name}/servo'
@@ -148,7 +148,7 @@ class Imb:
                         self.finished_message = [ 'Failed to push discovery telemetry as OCO event.' ] + self.finished_message
                     else:
                         self.finished_message = [
-                                'Failed to push discovery telemetry as OCO event. Please reach out to opsani with a copy of your discovery.yaml telemetry file'
+                                'Failed to push discovery telemetry as OCO event. Please reach out to opsani with a copy of your discovery.yaml telemetry file.'
                             ] + self.finished_message
 
     async def main(self):
