@@ -9,6 +9,7 @@ assert sys.version_info >= (3, 6, 1), "Must be running on python >= 3.6.1. Found
 
 # TODO: remove unused imports
 from prompt_toolkit import Application, HTML
+from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.application.current import get_app
 from prompt_toolkit.widgets import Button, CheckboxList, Dialog, Frame, Label, RadioList, TextArea
@@ -53,7 +54,11 @@ class ImbTui:
     async def stop_ui(self):
         self.app.exit()
 
-    async def prompt_yn(self, title, prompt, disable_back=False):
+    async def run_in_terminal(self, func):
+        '''Hide prompt then run function on the terminal above the current application or prompt.'''
+        await run_in_terminal(func)
+
+    async def prompt_yn(self, title, prompt, disable_back=False, allow_other=False, other_button_text="Other"):
         result = ImbTuiResult()
         input_done = asyncio.Event()
 
@@ -69,12 +74,19 @@ class ImbTui:
             result.back_selected = True
             input_done.set()
 
+        def other_handler():
+            result.other_selected = True
+            input_done.set()
+
         buttons=[
             Button(text="Yes", handler=yes_handler),
             Button(text="No", handler=no_handler)
         ]
         if not disable_back:
             buttons.append(Button(text="Back", handler=back_handler))
+
+        if allow_other:
+            buttons.append(Button(text=other_button_text, handler=other_handler))
 
         yn_dialog = Dialog(
             title=title,

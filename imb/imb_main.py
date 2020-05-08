@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import requests
+import subprocess
 import sys
 from traceback import format_exc
 
@@ -91,11 +92,22 @@ class Imb:
             imb_yaml.dump(output, out_file)
         
         if self.app_name and self.opsani_account and self.token:
-            result = await self.ui.prompt_yn(
-                title='Push Discovery Telemetry?',
-                prompt=prompt,
-                disable_back=True
-            )
+            while True:
+                result = await self.ui.prompt_yn(
+                    title='Push Discovery Telemetry?',
+                    prompt=prompt,
+                    disable_back=True,
+                    allow_other=True,
+                    other_button_text="Preview"
+                )
+                if result.other_selected:
+                    await self.ui.run_in_terminal(
+                        # TODO: some kind of indicator to press 'q' to exit preview
+                        lambda: subprocess.run(['less', 'discovery.yaml'])) # , env={'LESSSECURE': '1'})) TODO: <- breaks less display (terminal is not fully functional)
+                else:
+                    break
+
+
             if result.value:
                 # TODO: send to oco ('TELEMETRY' event)
                 url=f"https://api.optune.ai/accounts/{self.opsani_account}/applications/{self.app_name}/config/"
@@ -110,6 +122,14 @@ class Imb:
                     headers=headers,
                     json=payload
                 )
+                if not response.ok:
+                    output['oco-config-write-error-code'] = response.status_code
+                    output['oco-config-write-error-text'] = response.text
+                    with open('discovery.yaml', 'w') as out_file:
+                        imb_yaml.dump(output, out_file)
+                    self.finished_message = [
+                            'Failed to push discovery telemetry to OCO config. Please reach out to opsani with a copy of your discovery.yaml telemetry file'
+                        ] + self.finished_message
 
                 url=f'https://api.opsani.com/accounts/{self.opsani_account}/applications/{self.app_name}/servo'
                 headers.pop('Content-type')
@@ -119,6 +139,17 @@ class Imb:
                     headers,
                     json=payload
                 )
+                if not response.ok:
+                    output['oco-event-write-error-code'] = response.status_code
+                    output['oco-event-write-error-text'] = response.text
+                    with open('discovery.yaml', 'w') as out_file:
+                        imb_yaml.dump(output, out_file)
+                    if any('Please reach out to opsani with a copy of your discovery.yaml telemetry file' in m for m in self.finished_message):
+                        self.finished_message = [ 'Failed to push discovery telemetry as OCO event.' ] + self.finished_message
+                    else:
+                        self.finished_message = [
+                                'Failed to push discovery telemetry as OCO event. Please reach out to opsani with a copy of your discovery.yaml telemetry file'
+                            ] + self.finished_message
 
     async def main(self):
         try:
