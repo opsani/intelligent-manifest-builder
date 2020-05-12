@@ -1,0 +1,5 @@
+oimb:
+ app: @@OPTUNE_APPLICATION_ID@@
+ account: @@OPTUNE_ACCOUNT_ID@@
+ token: @@OPTUNE_AUTH_TOKEN@@
+ mode: @@opsani_optimization_mode@@
