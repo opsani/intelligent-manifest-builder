@@ -15,7 +15,9 @@ setup ( name='imb',
       'kubernetes',
       'PyYAML',
       'prompt-toolkit',
-      'requests'
+      'requests',
+      'python-dotenv',
+      'awscli'
   ],
   entry_points='''
     [console_scripts]
