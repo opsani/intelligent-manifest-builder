@@ -135,7 +135,7 @@ class Imb:
                             'Failed to push discovery telemetry to OCO config. Please reach out to opsani with a copy of your discovery.yaml telemetry file.'
                         ] + self.finished_message
                 else:
-                    current_override.setdefault('adjustment', {}).setdefault('userdata', {})['imb'] = output
+                    current_override.setdefault('adjustment', {}).setdefault('control', {}).setdefault('userdata', {})['imb'] = output
                     response=requests.put(
                         url,
                         headers=headers,
@@ -331,6 +331,7 @@ class Imb:
                     self.imbConfig = data.get('oimb') or {}
                 else:
                     self.imbConfig = {}
+
         except FileNotFoundError:
             self.imbConfig = {}
 

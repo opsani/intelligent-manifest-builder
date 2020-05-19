@@ -10,7 +10,7 @@ docker run --rm -it -v $(pwd):/work -v ~/.kube/config:/root/.kube/config -v ~/.a
 
 ## Set up an alias
 
-alias imb='run --rm -it -v \$(pwd):/work -v ~/.kube/config:/root/.kube/config -v ~/.aws/:/root/.aws/ opsani/imb'
+alias imb='docker run --rm -it -v $(pwd):/work -v ~/.kube/config:/root/.kube/config -v ~/.aws/:/root/.aws/ -v ~/.gcloud:/root/.gcloud  opsani/k8s-imb:alpha'
 
 ## Dependencies
 

@@ -2,3 +2,5 @@ kubernetes
 prompt-toolkit
 pyyaml
 requests
+python-dotenv
+awscli
