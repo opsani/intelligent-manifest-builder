@@ -1,5 +1,0 @@
-oimb:
- app: #{app_id}
- account: #{account_id}
- token: #{token}
- mode: saturation

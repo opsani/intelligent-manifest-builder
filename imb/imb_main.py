@@ -2,6 +2,7 @@
 
 import asyncio
 from base64 import b64encode
+from dotenv import load_dotenv
 import json
 import os
 from pathlib import Path
@@ -100,9 +101,7 @@ class Imb:
                     other_button_text="Preview"
                 )
                 if result.other_selected:
-                    await self.ui.run_in_terminal(
-                        # TODO: some kind of indicator to press 'q' to exit preview
-                        lambda: subprocess.run(['less', 'discovery.yaml'])) # , env={'LESSSECURE': '1'})) TODO: <- breaks less display (terminal is not fully functional)
+                    await self.ui.prompt_multiline_text_output(title='discovery.yaml', text=imb_yaml.dump(output))
                 else:
                     break
 
@@ -324,16 +323,26 @@ class Imb:
             } },
             'optimization' : {}
         }
-        try:
-            with open('oimb.yaml', 'r') as in_file:
-                data = imb_yaml.safe_load(in_file)
-                if data:
-                    self.imbConfig = data.get('oimb') or {}
-                else:
-                    self.imbConfig = {}
+        self.imbConfig = {}
 
-        except FileNotFoundError:
-            self.imbConfig = {}
+        env_path = Path('./opsani.env')
+        if not env_path.exists():
+            env_path = Path('./.env')
+        if not env_path.exists():
+            env_path = Path('~/opsani.env')
+        load_dotenv(dotenv_path=env_path)
+
+        if os.getenv('OPSANI_ACCOUNT_ID') is not None:
+            self.imbConfig['account'] = os.environ['OPSANI_ACCOUNT_ID']
+        if os.getenv('OPSANI_APPLICATION_ID') is not None:
+            self.imbConfig['app'] = os.environ['OPSANI_APPLICATION_ID']
+        if os.getenv('OPSANI_AUTH_TOKEN') is not None:
+            self.imbConfig['token'] = os.environ['OPSANI_AUTH_TOKEN']
+        # TODO: what should this be used for?
+        # if os.getenv('OPSANI_NAMESPACE') is not None:
+        #     self.imbConfig['namespace'] = os.environ['OPSANI_NAMESPACE']
+        if os.getenv('OPSANI_OPTIMIZATION_MODE') is not None:
+            self.imbConfig['mode'] = os.environ['OPSANI_OPTIMIZATION_MODE']
 
         # Queue up next method and return False for no interaction
         call_next(self.get_credentials)

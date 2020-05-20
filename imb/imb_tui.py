@@ -54,10 +54,6 @@ class ImbTui:
     async def stop_ui(self):
         self.app.exit()
 
-    async def run_in_terminal(self, func):
-        '''Hide prompt then run function on the terminal above the current application or prompt.'''
-        await run_in_terminal(func)
-
     async def prompt_yn(self, title, prompt, disable_back=False, allow_other=False, other_button_text="Other"):
         result = ImbTuiResult()
         input_done = asyncio.Event()
@@ -239,6 +235,36 @@ class ImbTui:
                 ],
                 padding=Dimension(preferred=1, max=1),
             ),
+            buttons=[ok_button, back_button],
+            modal=False,
+        )
+
+        dialog.container.container.content.style=""
+        self.app_frame.body = HSplit([
+            dialog,
+        ])
+        self.app.invalidate()
+        self.app.layout.focus(self.app_frame)
+        await input_done.wait()
+        return result
+
+    async def prompt_multiline_text_output(self, title, text=''):
+        result = ImbTuiResult()
+        input_done = asyncio.Event()
+
+        def ok_handler() -> None:
+            input_done.set()
+
+        def back_handler() -> None:
+            result.back_selected = True
+            input_done.set()
+
+        ok_button = Button(text='Ok', handler=ok_handler)
+        back_button = Button(text='Back', handler=back_handler)
+
+        dialog = Dialog(
+            title=title,
+            body=TextArea(text=text, multiline=True, scrollbar=True, read_only=True),
             buttons=[ok_button, back_button],
             modal=False,
         )
