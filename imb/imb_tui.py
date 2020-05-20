@@ -264,7 +264,7 @@ class ImbTui:
 
         dialog = Dialog(
             title=title,
-            body=TextArea(text=text, multiline=True, scrollbar=True, read_only=True),
+            body=TextArea(text=text, wrap_lines=True, multiline=True, scrollbar=True, read_only=True),
             buttons=[ok_button, back_button],
             modal=False,
         )
