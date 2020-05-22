@@ -277,7 +277,7 @@ class ImbPrometheus:
             # Get Deployment metrics
             get_metrics_query_text = 'sum by(__name__)({{ {} }})'.format(','.join(self.query_labels))
 
-            connect_attempts = 5
+            connect_attempts = 10
             while connect_attempts > 0:
                 try:
                     query_resp = requests.get(url=self.query_url, params={ 'query': get_metrics_query_text }, timeout=(0.25, 10))
