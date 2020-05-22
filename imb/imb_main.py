@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import requests
 import subprocess
+import stat
 import sys
 from traceback import format_exc
 
@@ -55,7 +56,7 @@ class Imb:
             pass # UI exit handler cancels Imb.main() task. Catch cancellation here for graceful exit
 
         if self.finished_message:
-            print(' '.join(self.finished_message))
+            print('\n'.join(self.finished_message))
         
         loop.close()
 
@@ -533,13 +534,16 @@ class Imb:
                         data=data
                     )
                 else:
-                    state_data['finished_message_addon'] = """\
-Run
-    coctl put --file override.yaml
-to push the OCO config override."""
+                    state_data['finished_message_addon'] = [
+                        "Run",
+                        "",
+                        "    coctl put --file override.yaml",
+                        "",
+                        "to push the OCO config override."
+                    ]
 
         if state_data.get('finished_message_addon') and state_data['finished_message_addon'] not in self.finished_message:
-            self.finished_message.append(state_data['finished_message_addon'])
+            self.finished_message.extend(state_data['finished_message_addon'])
 
         call_next(self.finish_discovery)
         
@@ -581,28 +585,41 @@ to push the OCO config override."""
         with open('servo-manifests/opsani-servo-configmap.yaml', 'w') as out_file:
             imb_yaml.dump(servo_configmap, out_file)
 
-        result = await self.ui.prompt_ok('Discovery Complete', prompt='Press Enter to exit or select Back to change details')
+        # Generate launch_servo.sh script
+        script_str = 'kubectl apply -f servo-manifests/ --namespace {namespace} --context {context}'\
+            ''.format(namespace=self.servo_namespace, context=self.k8sImb.context['name'])
+        script_str = script_str + '\n' + 'kubectl logs --context {context} -n {namespace} -f '\
+            '$(kubectl get pods --context {context} -n {namespace} -o jsonpath=\'{{.items[?(@.metadata.labels.comp=="opsani-servo")].metadata.name}}\')'\
+            ''.format(namespace=self.servo_namespace, context=self.k8sImb.context['name'])
+
+        with open('launch_servo.sh', 'w') as out_file:
+            out_file.write(script_str)
+        os.chmod('launch_servo.sh', os.stat('launch_servo.sh').st_mode | stat.S_IEXEC)
+
+        if self.other_info.get('credentials') or any(mod.other_info.get('missing_info') for mod in self.imb_modules):
+            finished_title = 'Partial Discovery Complete'
+            finished_prompt = [
+                "Partial discovery completed. Please reach out to Opsani support for assistance", 
+                "in completing configuration of the manifests contained in the servo-manifests folder"]
+        else:
+            finished_title = 'Discovery Complete'
+            finished_prompt = [
+                "Discovery complete. Run the following command:",
+                "",
+                "    ./launch_servo.sh",
+                "",
+                "to configure and start Opsani servo and then open your web browser at",
+                "",
+                "    https://optune.ai/accounts/{account}/applications/{app}".format(account=self.opsani_account, app=self.app_name),
+                "",
+                "to observe the optimization process."] + self.finished_message
+
+        result = await self.ui.prompt_ok(title=finished_title, prompt=finished_prompt + ['Press Enter to exit or select Back to change details'])
         if result.back_selected:
             return True
         state_data['interacted'] = True
 
-        if self.other_info.get('credentials') or any(mod.other_info.get('missing_info') for mod in self.imb_modules):
-            self.finished_message = ["Partial discovery completed. Please reach out to Opsani support for assistance in completing configuration of"
-                " the manifests contained in the servo-manifests folder"]
-        else:
-            self.finished_message = ["""\
-Discovery complete. Run the following command:
-    kubectl apply -f servo-manifests/ \\
-        --namespace {namespace} \\
-        --context {context}
-to configure and start Opsani servo and then open your web browser at
-    https://optune.ai/accounts/{account}/applications/{app}
-to observe the optimization process.""".format(
-                namespace=self.servo_namespace,
-                context=self.k8sImb.context['name'],
-                account=self.opsani_account,
-                app=self.app_name
-            )] + self.finished_message
+        self.finished_message = []
 
         call_next(None) # done, exit here
 
