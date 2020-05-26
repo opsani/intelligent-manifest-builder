@@ -110,6 +110,15 @@ class ImbKubernetes:
 
         call_next(self.finished_method)
 
+    async def prompt_exit(self, call_next, state_data):
+        state_data['interacted'] = False
+
+        result = await self.ui.prompt_ok(title=self.exit_title, prompt=self.exit_prompt)
+        if result.back_selected:
+            return True
+
+        call_next(None)
+
     async def run(self, call_next, state_data):
         self.k8sConfig = {'application': {'components': {}}}
         self.kubeConfigPath = kubernetes.config.kube_config.KUBE_CONFIG_DEFAULT_LOCATION
@@ -166,7 +175,13 @@ class ImbKubernetes:
                 state_data['namespace'] = self.imbConfig['app']
             elif self.imbConfig.get('account') and self.imbConfig['account'] in namespaces:
                 state_data['namespace'] = self.imbConfig['account']
-            else:
+
+            if 'namespace' in state_data:
+                deployments = self.apps_client.list_namespaced_deployment(namespace=state_data['namespace']).items
+                if len(deployments) < 1:
+                    state_data.pop('namespace') # Force a prompt selections if auto-selected namespace contains no deployments
+
+            if not 'namespace' in state_data:
                 result = await self.ui.prompt_radio_list(values=namespaces, title='Select Namespace of App to be Optimized', header='Namespace:')
                 state_data['interacted'] = True
                 if result.back_selected:
@@ -188,7 +203,13 @@ class ImbKubernetes:
         # Get deployments, prompt if multiple
         deployments = self.apps_client.list_namespaced_deployment(namespace=self.namespace).items
         if len(deployments) < 1:
-            raise Exception('Specified context and namespace contained no deployments') # TODO: custom exception with handler to set finished message
+            self.exit_title = 'No Deployments Found'
+            self.exit_prompt = [
+                'Specified context and namespace contained no deployments',
+                'Select Back to pick another namespace or select Ok to exit'
+            ]
+            state_data['no_deployments_found'] = True
+            state_data['interacted'] = False
 
         if not state_data:
             state_data['interacted'] = False
@@ -210,7 +231,9 @@ class ImbKubernetes:
                     else:
                         state_data['deployment_name'] = dep_names[result.value]
 
-        if state_data.get('other_selected'):
+        if state_data.get('no_deployments_found'):
+            call_next(self.prompt_exit)
+        elif state_data.get('other_selected'):
             call_next(self.prompt_other)
         else:
             self.deployment_name = state_data['deployment_name']
