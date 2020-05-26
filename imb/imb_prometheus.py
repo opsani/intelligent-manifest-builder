@@ -10,7 +10,7 @@ import time
 KNOWN_METRICS = {
     'envoy_cluster_upstream_rq_total': ('main_request_rate', 'sum(rate({}[1m]))', 'rpm'),
     # 'envoy_cluster_external_upstream_rq_time_bucket': ('main_p90_time', 'histogram_quantile(0.9,sum(rate({}[1m])) by (envoy_cluster_name, le))', 'ms'),
-    'api_requests_total': ('main_request_rate', 'sum(rate({}[1m]))', 'rpm'),
+    'api_requests_total': ('main_request_rate', 'sum(rate({}))', 'rpm'),
 }
 
 GATHERED_INFO = set(['prometheus_endpoint', 'local_endpoint', 'desired_deployment_metrics', 'configured_deployment_metrics', 'perf_metric'])
@@ -361,7 +361,7 @@ class ImbPrometheus:
             i = 0
             while(i < num_metrics):
                 m = self.desired_deployment_metrics[i]
-                perf_name, query_template, perf_unit = KNOWN_METRICS.get(m, (m, '{}[1m]', ''))
+                perf_name, query_template, perf_unit = KNOWN_METRICS.get(m, (m, 'sum({})', ''))
                 query_text = query_template.format('{}{{{}}}'.format(m, ','.join(self.query_labels)))
                 result = await self.ui.prompt_text_input(
                     title='Deployment Metrics Config {}/{}'.format(i+1, num_metrics),
