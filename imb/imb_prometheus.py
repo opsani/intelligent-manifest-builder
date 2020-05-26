@@ -303,50 +303,58 @@ class ImbPrometheus:
                 # return {}
 
             # Format data and prompt
-            matching_metrics = query_resp.json()['data']['result']
-            if not matching_metrics:
-                while self.finished_message:
-                    self.finished_message.pop()
-                # TODO: raise as error with custome error message
-                self.finished_message.append('Unable to locate metrics that match your deployment in your Prometheus instance, please contact Opsani for further assistance')
-                call_next(None)
-                return {}
+            found_metrics = query_resp.json()['data']['result']
+            if not found_metrics:
+                # If no matches found, prompt with all metrics regardless of label
+                self.query_labels = []
+                query_resp = requests.get(url=self.query_url, params={ 'query': 'sum by(__name__)({__name__=~".+"})' })
+                found_metrics = query_resp.json()['data']['result']
+                if not found_metrics:
+                    state_data['no_metrics_found'] = True
+                    self.exit_title = 'No Metrics Found'
+                    self.exit_prompt = [
+                        'Unable to locate any metrics in your Prometheus instance.',
+                        'Please contact Opsani for further assistance'
+                    ]
 
-            matching_metrics_names = [ m['metric']['__name__'] for m in matching_metrics ]
-            matching_known_metrics = [m for m in matching_metrics_names if m in KNOWN_METRICS]
+            if not state_data.get('no_metrics_found'):
+                found_metrics_names = [ m['metric']['__name__'] for m in found_metrics ]
+                matching_known_metrics = [m for m in found_metrics_names if m in KNOWN_METRICS]
 
-            if len(matching_known_metrics) == 1:
-                state_data['desired_deployment_metrics'] = matching_known_metrics
-            elif len(matching_known_metrics) > 1:
-                matching_known_metrics.sort()
-                known_metrics_options = ['{} - {}'.format(m, KNOWN_METRICS[m][0]) for m in matching_known_metrics]
-                result = await self.ui.prompt_check_list(
-                    values=known_metrics_options, 
-                    title='Select Deployment Metrics for Optimization Measurement', 
-                    header='Metric __name__ - Suggested Perf Name:')
-                state_data['interacted'] = True
-                if result.back_selected:
-                    return True
-                if result.other_selected:
-                    state_data['other_selected'] = True
+                if len(matching_known_metrics) == 1:
+                    state_data['desired_deployment_metrics'] = matching_known_metrics
+                elif len(matching_known_metrics) > 1:
+                    matching_known_metrics.sort()
+                    known_metrics_options = ['{} - {}'.format(m, KNOWN_METRICS[m][0]) for m in matching_known_metrics]
+                    result = await self.ui.prompt_check_list(
+                        values=known_metrics_options, 
+                        title='Select Deployment Metrics for Optimization Measurement', 
+                        header='Metric __name__ - Suggested Perf Name:')
+                    state_data['interacted'] = True
+                    if result.back_selected:
+                        return True
+                    if result.other_selected:
+                        state_data['other_selected'] = True
+                    else:
+                        state_data['desired_deployment_metrics'] = [matching_known_metrics[i] for i in result.value]
                 else:
-                    state_data['desired_deployment_metrics'] = [matching_known_metrics[i] for i in result.value]
-            else:
-                # Filter out non 'request' oriented metrics
-                req_metrics = [m for m in matching_metrics_names if 'request' in m or 'rq' in m]
-                req_metrics.sort()
-                result = await self.ui.prompt_check_list(
-                    values=req_metrics, 
-                    title='Select Deployment Metrics for Optimization Measurement', 
-                    header='Metric __name__:')
-                state_data['interacted'] = True
-                if result.back_selected:
-                    return True
-                if result.other_selected:
-                    state_data['other_selected'] = True
-                else:
-                    state_data['desired_deployment_metrics'] = [ req_metrics[i] for i in result.value ]
+                    # Filter out non 'request' oriented metrics
+                    req_metrics = [m for m in found_metrics_names if 'request' in m or 'rq' in m]
+                    req_metrics.sort()
+                    result = await self.ui.prompt_check_list(
+                        values=req_metrics, 
+                        title='Select Deployment Metrics for Optimization Measurement', 
+                        header='Metric __name__:')
+                    state_data['interacted'] = True
+                    if result.back_selected:
+                        return True
+                    if result.other_selected:
+                        state_data['other_selected'] = True
+                    else:
+                        state_data['desired_deployment_metrics'] = [ req_metrics[i] for i in result.value ]
         
+        if state_data.get('no_metrics_found'):
+            call_next(self.prompt_exit)
         if state_data.get('other_selected'):
             call_next(self.prompt_other)
         else:

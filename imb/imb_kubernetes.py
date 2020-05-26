@@ -129,29 +129,36 @@ class ImbKubernetes:
             try:
                 contexts, _ = kubernetes.config.list_kube_config_contexts() # get active context from default kube config location
             except kubernetes.config.config_exception.ConfigException as e:
-                while self.finished_message:
-                    self.finished_message.pop()
+                state_data['invalid_kubeconfig'] = True
                 if 'Invalid kube-config file. No configuration found.' in str(e):
-                    self.finished_message.append('IMB was unable to locate a kubernetes config at the location {}. Please ensure you have a valid kubeconfig on this host'.format(self.kubeConfigPath))
+                    self.exit_title = 'No Kubeconfig Found'
+                    self.exit_prompt = [
+                        'IMB was unable to locate a kubernetes config at the location {}.'.format(self.kubeConfigPath),
+                        'Please ensure you have a valid kubeconfig on this host'
+                    ]
                 elif 'Invalid kube-config file. Expected object with name  in' in str(e) and 'config/contexts list' in str(e):
-                    self.finished_message.append('The kubernetes config located at {} contained no contexts. Please ensure you have a valid kubeconfig on this host'.format(self.kubeConfigPath))
+                    self.exit_title = 'Kubeconfig Contained No Contexts'
+                    self.exit_prompt = [
+                        'The kubernetes config located at {} contained no contexts.'.format(self.kubeConfigPath),
+                        'Please ensure you have a valid kubeconfig on this host'
+                    ]
                 else:
                     raise # Trigger section exception handler for unknown error/error that user can't correct
 
-                call_next(None)
-                return False
+            if not state_data.get('invalid_kubeconfig'):
+                radioValues = ['{} - {}'.format(c['name'], c['context']['cluster']) for c in contexts]
+                result = await self.ui.prompt_radio_list(values=radioValues, title='Select Context of App to be Optimized', header='Context - Cluster:')
+                state_data['interacted'] = True
+                if result.back_selected:
+                    return True
+                elif result.other_selected:
+                    state_data['other_selected'] = True
+                else:
+                    state_data['context'] = contexts[result.value]
 
-            radioValues = ['{} - {}'.format(c['name'], c['context']['cluster']) for c in contexts]
-            result = await self.ui.prompt_radio_list(values=radioValues, title='Select Context of App to be Optimized', header='Context - Cluster:')
-            state_data['interacted'] = True
-            if result.back_selected:
-                return True
-            elif result.other_selected:
-                state_data['other_selected'] = True
-            else:
-                state_data['context'] = contexts[result.value]
-
-        if state_data.get('other_selected'):
+        if state_data.get('invalid_kubeconfig'):
+            call_next(self.prompt_exit)
+        elif state_data.get('other_selected'):
             call_next(self.prompt_other)
         else:
             self.context = state_data['context']
