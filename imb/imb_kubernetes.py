@@ -23,6 +23,7 @@ class ImbKubernetes:
         # Initialize info used in Other/Error handling
         self.other_info = {}
         self.missing_info = set(GATHERED_INFO)
+        self.other_message = None
 
         # Assign defaults to properties referenced externally in case they don't get set because of Other selection or error
         self.prometheusService = None
@@ -81,26 +82,30 @@ class ImbKubernetes:
     async def prompt_other(self, call_next, state_data):
         if not state_data:
             state_data['interacted'] = False
+            prompt = self.other_message or 'Please use the field below to describe your desired configuration'
 
             # populate with previous value stored on class if the user backs up to this prompt
             initial_text = self.other_info.get('other_text', '')
             result = await self.ui.prompt_multiline_text_input(
                 title='Other Information', 
-                prompt='Please use the field below to describe your desired configuration',
+                prompt=prompt,
                 initial_text=initial_text)
             state_data['interacted'] = True
             if result.back_selected:
                 # If user previously completed this prompt then backs up to it and selects back again
                 #  data from the prompt will still be stored on the class. Its removed here so it doesn't 
                 #  continue to show up in discovery.yaml if the user doesn't select Other on the prompt before this one
+                self.other_info.pop('other_prompt', None)
                 self.other_info.pop('other_text', None)
                 self.other_info.pop('missing_info', None)
                 return True
 
             state_data['missing_info'] = list(self.missing_info)
+            state_data['other_prompt'] = prompt
             state_data['other_text'] = result.value
 
         self.other_info['missing_info'] = state_data['missing_info']
+        self.other_info['other_prompt'] = state_data['other_prompt']
         self.other_info['other_text'] = state_data['other_text']
 
         # TODO: best effort to populate config with info gathered so far
@@ -277,7 +282,35 @@ class ImbKubernetes:
                     tgtContainer = containers[result.value]
             
             if not state_data.get('other_selected'):
-                cpu, mem = ('100m', '128Mi') if tgtContainer.resources.limits is None else (tgtContainer.resources.limits['cpu'], tgtContainer.resources.limits['memory'])
+                state_data['container_resources_requests'] = tgtContainer.resources.requests
+                state_data['container_resources_limits'] = tgtContainer.resources.limits
+                req_cpu, req_mem, lim_cpu, lim_mem = None, None, None, None
+                if tgtContainer.resources.requests:
+                    req_cpu = tgtContainer.resources.requests.get('cpu')
+                    req_mem = tgtContainer.resources.requests.get('memory')
+                if tgtContainer.resources.limits:
+                    lim_cpu = tgtContainer.resources.limits.get('cpu')
+                    lim_mem = tgtContainer.resources.limits.get('memory')
+
+                if req_cpu is not None and lim_cpu is not None:
+                    cpu = req_cpu
+                    if req_cpu != lim_cpu:
+                        state_data.setdefault('warnings', []).append('Cpu requests ({}) and limits ({}) are both defined and different, will use requests value as baseline'.format(req_cpu, lim_cpu))
+                elif req_cpu is not None or lim_cpu is not None:
+                    cpu = req_cpu if req_cpu is not None else lim_cpu
+                else:
+                    state_data['cpu_resource_missing'] = True
+
+                if req_mem is not None and lim_mem is not None:
+                    mem = req_mem
+                    if req_mem != lim_mem:
+                        state_data.setdefault('warnings', []).append('Memory requests ({}) and limits ({}) are both defined and different, will use requests value as baseline'.format(req_mem, lim_mem))
+                elif req_mem is not None or lim_mem is not None:
+                    mem = req_mem if req_mem is not None else lim_mem
+                else:
+                    state_data['mem_resource_missing'] = True
+
+            if not state_data.get('other_selected') and not state_data.get('mem_resource_missing') and not state_data.get('cpu_resource_missing'):
                 cpu = _convert_to_cores(cpu)
                 cpu_min, cpu_max = _calculate_min_max(cpu, 0.125, 0.25, 4)
                 mem = _convert_to_gib(mem)
@@ -301,15 +334,26 @@ class ImbKubernetes:
                     'min': cpu_min,
                     'max': cpu_max,
                     'step': 0.125,
+                    'selector': 'both'
                 }
                 settings['mem'] = {
                     'min': mem_min,
                     'max': mem_max,
                     'step': 0.125,
+                    'selector': 'both'
                 }
                 state_data['container_settings'] = {'{}/{}'.format(self.deployment_name, tgtContainer.name): {'settings': settings} }
 
         if state_data.get('other_selected'):
+            call_next(self.prompt_other)
+        elif state_data.get('mem_resource_missing') or state_data.get('cpu_resource_missing'):
+            mess_part = 'memory and cpu' if state_data.get('mem_resource_missing') and state_data.get('cpu_resource_missing')\
+                else 'memory' if state_data.get('mem_resource_missing') else 'cpu'
+            self.other_message = [
+                'Specified container resource defined no requests or limits for {}'.format(mess_part),
+                'which is used by OCO to derive the current amount of resources allocated to containers.',
+                'Please describe why and/or an alternative means of deriving the current resource allocation below.'
+            ]
             call_next(self.prompt_other)
         else:
             self.k8sConfig['application']['components'] = state_data['container_settings']

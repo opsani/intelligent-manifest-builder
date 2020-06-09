@@ -209,9 +209,19 @@ class ImbTui:
         await input_done.wait()
         return result
 
-    async def prompt_multiline_text_input(self, title, prompt, initial_text=''):
+    async def prompt_multiline_text_input(self, title, prompt: Union[str, Iterable[str]], initial_text=''):
         result = ImbTuiResult()
         input_done = asyncio.Event()
+
+        dialog_body = []
+        if isinstance(prompt, str):
+            dialog_body.append(Window(FormattedTextControl(prompt),height=1, align=WindowAlign.CENTER))
+        else:
+            for line in prompt:
+                dialog_body.append(Window(FormattedTextControl(line),height=1, align=WindowAlign.CENTER))
+
+        textfield = TextArea(text=initial_text, multiline=True, scrollbar=True)
+        dialog_body.append(textfield)
 
         def ok_handler() -> None:
             result.value = textfield.text
@@ -224,17 +234,9 @@ class ImbTui:
         ok_button = Button(text='Ok', handler=ok_handler)
         back_button = Button(text='Back', handler=back_handler)
 
-        textfield = TextArea(text=initial_text, multiline=True, scrollbar=True)
-
         dialog = Dialog(
             title=title,
-            body=HSplit(
-                [
-                    Window(FormattedTextControl(text=prompt), align=WindowAlign.CENTER, dont_extend_height=True), 
-                    textfield,
-                ],
-                padding=Dimension(preferred=1, max=1),
-            ),
+            body=HSplit(dialog_body, padding=Dimension(preferred=1, max=1)),
             buttons=[ok_button, back_button],
             modal=False,
         )
