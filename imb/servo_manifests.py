@@ -95,13 +95,15 @@ servo_deployment = {
     "metadata": {
         "name": "opsani-servo",
         "labels": {
-            "comp": "opsani-servo",
-            "optune.ai/exclude": "1"
+            "comp": "opsani-servo"
         }
     },
     "spec": {
         "replicas": 1,
         "revisionHistoryLimit": 3,
+        "strategy": {
+            "type": "Recreate"
+        },
         "selector": {
             "matchLabels": {
                 "comp": "opsani-servo"

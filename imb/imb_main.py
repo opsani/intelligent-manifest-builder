@@ -344,6 +344,8 @@ class Imb:
         #     self.imbConfig['namespace'] = os.environ['OPSANI_NAMESPACE']
         if os.getenv('OPSANI_OPTIMIZATION_MODE') is not None:
             self.imbConfig['mode'] = os.environ['OPSANI_OPTIMIZATION_MODE']
+        else:
+            self.imbConfig['mode'] = 'saturation'
 
         # Queue up next method and return False for no interaction
         call_next(self.get_credentials)
@@ -460,7 +462,7 @@ class Imb:
                 title='Servo Info',
                 prompts=[
                     # TODO: logic to actually recommend a servo image based on discovery
-                    {'prompt': 'The following Servo image has been selected. Edit below to override with a different image', 'initial_text': 'opsani/servo-k8s-prom-vegeta:latest'},
+                    {'prompt': 'The following Servo image has been selected. Edit below to override with a different image', 'initial_text': 'opsani/servo-k8s-prom-vegeta:1.0.0'},
                     {'prompt': 'Please enter the namespace to which servo should be deployed', 'initial_text': self.k8sImb.namespace}
                 ],
                 allow_other=True
@@ -574,6 +576,10 @@ class Imb:
             {
                 "name": "OPTUNE_ACCOUNT",
                 "value": self.opsani_account or '@@MANUAL_CONFIGURATION_REQUIRED@@'
+            },
+            {
+                "name": "OPTUNE_NAMESPACE",
+                "value": self.servo_namespace or '@@MANUAL_CONFIGURATION_REQUIRED@@'
             }
         ]
         with open('servo-manifests/opsani-servo-deployment.yaml', 'w') as out_file:
