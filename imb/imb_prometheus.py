@@ -174,21 +174,14 @@ class ImbPrometheus:
                     self.k8sImb.prometheusService.metadata.namespace,
                     self.k8sImb.prometheusService.spec.ports[0].port
                 )
-                state_data['local_endpoint'] = state_data['prometheus_endpoint']
-                try:
-                    requests.get(state_data['local_endpoint'], timeout=(0.25, 10))
-                except requests.exceptions.ConnectionError:
-                    state_data['local_endpoint'] = 'http://localhost:{}'.format(self.k8sImb.prometheusService.spec.ports[0].port)
             else:
                 state_data['prometheus_endpoint'] = ''
-                state_data['local_endpoint'] = ''
             
             # prompt for endpoint
             result = await self.ui.prompt_text_input(
                 title='Prometheus Endpoint',
                 prompts=[
                     {'prompt': 'Enter/Edit the prometheus endpoint for Servo to use', 'initial_text': state_data['prometheus_endpoint']},
-                    {'prompt': 'Enter/Edit the local prometheus endpoint (for metrics discovery only)', 'initial_text': state_data['local_endpoint']}
                 ],
                 allow_other=True
             )
@@ -198,32 +191,23 @@ class ImbPrometheus:
             if result.other_selected:
                 state_data['other_selected'] = True
             else:
-                state_data['prometheus_endpoint'], state_data['local_endpoint'] = result.value
+                state_data['prometheus_endpoint'] = result.value
 
         if state_data.get('other_selected'):
             call_next(self.prompt_other)
         else:
-            self.prometheus_endpoint, self.local_endpoint  = state_data['prometheus_endpoint'], state_data['local_endpoint']
-            
-            self.query_url = '{}/api/v1/query'.format(self.local_endpoint)
+            self.prometheus_endpoint = state_data['prometheus_endpoint']
             self.promConfig['prometheus_endpoint'] = self.prometheus_endpoint
-
-            if 'localhost' in self.local_endpoint and self.k8sImb.prometheusService:
-                # Check if they've already opened a port forward
-                local_endpoint_reachable = True
-                try:
-                    requests.get(self.local_endpoint, timeout=(0.25, 10))
-                except requests.exceptions.ConnectionError:
-                    local_endpoint_reachable = False
-
-                if not local_endpoint_reachable:       
-                    call_next(self.prompt_port_forward)
-                else:
-                    call_next(self.select_deployment_metrics)
+            
+            try:
+                requests.get(self.prometheus_endpoint, timeout=(0.25, 10))
+            except requests.exceptions.ConnectionError:
+                call_next(self.prompt_local_endpoint)
             else:
+                self.query_url = '{}/api/v1/query'.format(self.prometheus_endpoint)
                 call_next(self.select_deployment_metrics)
 
-    async def prompt_port_forward(self, call_next, state_data):
+    async def prompt_local_endpoint(self, call_next, state_data):
         if not state_data or not state_data.get('port_forward_accepted'): # Ensure disclaimer accepted when skipping prompt
             state_data.update({
                 'interacted': False,
@@ -233,35 +217,64 @@ class ImbPrometheus:
             if self.port_forward_proc and self.port_forward_proc.poll() is None:
                 self.port_forward_proc.kill()
 
-            result = await self.ui.prompt_ok(
-                title="Ok to Port Forward?", 
-                prompt=["To optimize your service, Opsani requires access to Prometheus metrics.",
-                        "Because you have selected localhost for the discovery endpoint, Opsani", 
-                        "will use port forwarding to proxy access to Prometheus.",
-                        "If this is not acceptable, press the Escape key to exit now"]
+            state_data['local_endpoint'] = 'http://localhost:9090'
+            local_prompt = 'Enter/Edit the local prometheus endpoint (for metrics discovery only)'
+            if self.k8sImb.prometheusService:
+                state_data['local_endpoint'] = 'http://localhost:{}'.format(self.k8sImb.prometheusService.spec.ports[0].port)
+                local_prompt = [
+                    'Enter/Edit the local prometheus endpoint (for metrics discovery only).',
+                    'If this endpoint cannot be reached, IMB will use port forwarding to proxy access to Prometheus.',
+                    'If this is not acceptable, press the Escape key to exit now'
+                ]
+
+            # prompt for local endpoint
+            result = await self.ui.long_prompt_text_input(
+                title='Prometheus Local Endpoint',
+                prompt=local_prompt,
+                initial_text=state_data['local_endpoint'],
+                allow_other=True
             )
-            # state_data['interacted'] = True # only prompting for accept here so skip over if going back
+            state_data['interacted'] = True
             if result.back_selected:
                 return True
-            if result.value:
+            if result.other_selected:
+                state_data['other_selected'] = True
+            else:
                 state_data['port_forward_accepted'] = True
+                state_data['local_endpoint'] = result.value
 
-        # Have to use subprocess because kubernetes-client/python does not support port forwarding of services:
-        #   https://github.com/kubernetes-client/python/issues/166#issuecomment-504216584
-        port_forward_proc = subprocess.Popen(
-            stdout=subprocess.DEVNULL,
-            args=['kubectl', 'port-forward', 
-                '--kubeconfig', expanduser(self.k8sImb.kubeConfigPath),
-                '--context', self.k8sImb.context['name'],
-                '--namespace', self.k8sImb.prometheusService.metadata.namespace,
-                'svc/{}'.format(self.k8sImb.prometheusService.metadata.name),
-                str(self.k8sImb.prometheusService.spec.ports[0].port)])
-        def kill_proc():
-            if port_forward_proc.poll() is None:
-                port_forward_proc.kill()
-        atexit.register(kill_proc)
+        if state_data.get('other_selected'):
+            call_next(self.prompt_other)
+            return
 
-        self.port_forward_proc = port_forward_proc # set on the class here so that self is not passed into kill_proc enclosure above
+        self.local_endpoint = state_data['local_endpoint']
+        self.query_url = '{}/api/v1/query'.format(self.local_endpoint)
+
+        if self.k8sImb.prometheusService:
+            # Check if they've already opened a port forward
+            local_endpoint_reachable = True
+            try:
+                requests.get(self.local_endpoint, timeout=(0.25, 10))
+            except requests.exceptions.ConnectionError:
+                local_endpoint_reachable = False
+
+            if not local_endpoint_reachable:
+                # Have to use subprocess because kubernetes-client/python does not support port forwarding of services:
+                #   https://github.com/kubernetes-client/python/issues/166#issuecomment-504216584
+                port_forward_proc = subprocess.Popen(
+                    stdout=subprocess.DEVNULL,
+                    args=['kubectl', 'port-forward', 
+                        '--kubeconfig', expanduser(self.k8sImb.kubeConfigPath),
+                        '--context', self.k8sImb.context['name'],
+                        '--namespace', self.k8sImb.prometheusService.metadata.namespace,
+                        'svc/{}'.format(self.k8sImb.prometheusService.metadata.name),
+                        str(self.k8sImb.prometheusService.spec.ports[0].port)])
+                def kill_proc():
+                    if port_forward_proc.poll() is None:
+                        port_forward_proc.kill()
+                atexit.register(kill_proc)
+
+                self.port_forward_proc = port_forward_proc # set on the class here so that self is not passed into kill_proc enclosure above
 
         call_next(self.select_deployment_metrics)
         

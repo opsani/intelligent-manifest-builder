@@ -149,6 +149,55 @@ class ImbTui:
         await input_done.wait()
         return result
 
+    async def long_prompt_text_input(self, title, prompt: Union[str, Iterable[str]], initial_text='', allow_other=False):
+        'prompt for single text input with a multi-line prompt'
+        result = ImbTuiResult()
+        input_done = asyncio.Event()
+
+        def accept(buf) -> bool:
+            get_app().layout.focus(ok_button)
+            return True  # Keep text.
+
+        dialog_body = []
+        if isinstance(prompt, str):
+            dialog_body.append(Window(FormattedTextControl(prompt),height=1, align=WindowAlign.CENTER))
+        else:
+            for line in prompt:
+                dialog_body.append(Window(FormattedTextControl(line),height=1, align=WindowAlign.CENTER))
+                
+        text_field = TextArea(text=initial_text, multiline=False, accept_handler=accept)
+        dialog_body.append(text_field)
+
+        def ok_handler():
+            result.value = text_field.text
+            input_done.set()
+
+        def back_handler():
+            result.back_selected = True
+            input_done.set()
+
+        ok_button = Button(text='Ok', handler=ok_handler)
+        dialog = Dialog(
+            title=title,
+            body=HSplit(dialog_body),
+            buttons=[
+                ok_button,
+                Button(text="Back", handler=back_handler),
+            ],
+            modal=False,
+        )
+        # disable a_reverse style applied to dialogs
+        dialog.container.container.content.style=""
+        self.app_frame.body = HSplit([
+            Window(),
+            dialog,
+            Window(),
+        ])
+        self.app.invalidate()
+        self.app.layout.focus(self.app_frame)
+        await input_done.wait()
+        return result
+
     async def prompt_text_input(self, title, prompts, allow_other=False):
         result = ImbTuiResult()
         input_done = asyncio.Event()
