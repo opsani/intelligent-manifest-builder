@@ -620,12 +620,12 @@ class Imb:
                 "",
                 "to observe the optimization process."] + self.finished_message
 
-        result = await self.ui.prompt_ok(title=finished_title, prompt=finished_prompt + ['Press Enter to exit or select Back to change details'])
+        result = await self.ui.prompt_ok(title=finished_title, prompt=finished_prompt + ['', 'Press Enter to exit or select Back to change details'])
         if result.back_selected:
             return True
         state_data['interacted'] = True
 
-        self.finished_message = []
+        self.finished_message = [ '', '########################' ] + finished_prompt + [ '########################', '' ]
 
         call_next(None) # done, exit here
 
