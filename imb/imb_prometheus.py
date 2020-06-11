@@ -338,7 +338,8 @@ class ImbPrometheus:
                     state_data['desired_deployment_metrics'] = matching_known_metrics
                 elif len(matching_known_metrics) > 1:
                     matching_known_metrics.sort()
-                    known_metrics_options = ['{} - {}'.format(m, KNOWN_METRICS[m][0]) for m in matching_known_metrics]
+                    known_metrics_options = ['Enter Metric __name__(s) manually']
+                    known_metrics_options.extend(['{} - {}'.format(m, KNOWN_METRICS[m][0]) for m in matching_known_metrics])
                     result = await self.ui.prompt_check_list(
                         values=known_metrics_options, 
                         title='Select Deployment Metrics for Optimization Measurement', 
@@ -349,11 +350,15 @@ class ImbPrometheus:
                     if result.other_selected:
                         state_data['other_selected'] = True
                     else:
+                        if result.value[0] == 0:
+                            state_data['add_manual_metrics'] = True
+                            result.value = result.value[1:]
                         state_data['desired_deployment_metrics'] = [matching_known_metrics[i] for i in result.value]
                 else:
                     # Filter out non 'request' oriented metrics
                     req_metrics = [m for m in found_metrics_names if 'request' in m or 'rq' in m]
                     req_metrics.sort()
+                    req_metrics = ['Enter Metric __name__(s) manually'] + req_metrics
                     result = await self.ui.prompt_check_list(
                         values=req_metrics, 
                         title='Select Deployment Metrics for Optimization Measurement', 
@@ -364,15 +369,50 @@ class ImbPrometheus:
                     if result.other_selected:
                         state_data['other_selected'] = True
                     else:
+                        if result.value[0] == 0:
+                            state_data['add_manual_metrics'] = True
+                            result.value = result.value[1:]
                         state_data['desired_deployment_metrics'] = [ req_metrics[i] for i in result.value ]
         
         if state_data.get('no_metrics_found'):
             call_next(self.prompt_exit)
-        if state_data.get('other_selected'):
+        elif state_data.get('other_selected'):
             call_next(self.prompt_other)
         else:
             self.desired_deployment_metrics = state_data['desired_deployment_metrics']
-            call_next(self.configure_deployment_metrics)
+            if state_data.get('add_manual_metrics'):
+                call_next(self.enter_deployment_metrics)
+            else:
+                call_next(self.configure_deployment_metrics)
+
+    async def enter_deployment_metrics(self, call_next, state_data):
+        if not state_data:
+            state_data['interacted'] = False
+            state_data['manual_metrics'] = []
+
+            initial_text = ''
+            while True:
+                result = await self.ui.prompt_text_input(
+                    title='Enter Metric Name',
+                    prompts=[{'prompt': 'Enter name of desired prometheus metric', 'initial_text': initial_text}],
+                    allow_other=True,
+                    other_button_text='Add Metric',
+                    ok_button_text='Done'
+                )
+                state_data['interacted'] = True
+                if result.back_selected:
+                    if state_data['manual_metrics']:
+                        initial_text = state_data['manual_metrics'].pop()
+                    else:
+                        return True
+                else:
+                    initial_text = ''
+                    state_data['manual_metrics'].append(result.value)
+                    if not result.other_selected:
+                        break
+
+        self.desired_deployment_metrics.extend(state_data['manual_metrics'])
+        call_next(self.configure_deployment_metrics)
 
     async def configure_deployment_metrics(self, call_next, state_data):
         if not state_data:

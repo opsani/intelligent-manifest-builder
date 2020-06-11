@@ -198,7 +198,7 @@ class ImbTui:
         await input_done.wait()
         return result
 
-    async def prompt_text_input(self, title, prompts, allow_other=False):
+    async def prompt_text_input(self, title, prompts, allow_other=False, other_button_text="Other", ok_button_text="Ok"):
         result = ImbTuiResult()
         input_done = asyncio.Event()
         text_fields = []
@@ -220,16 +220,20 @@ class ImbTui:
             input_done.set()
 
         def other_handler() -> None:
+            if len(prompts) == 1:
+                result.value = text_fields[0].text
+            else:
+                result.value = tuple( t.text for t in text_fields )
             result.other_selected = True
             input_done.set()
 
-        ok_button = Button(text='Ok', handler=ok_handler) # capture ref to allow accept handler to focus it
+        ok_button = Button(text=ok_button_text, handler=ok_handler) # capture ref to allow accept handler to focus it
         buttons = [
             ok_button,
             Button(text='Back', handler=back_handler)
         ]
         if allow_other:
-            buttons.append(Button(text='Other', handler=other_handler))
+            buttons.append(Button(text=other_button_text, handler=other_handler))
 
         for p in prompts:
             text_field = TextArea(text=p.get('initial_text', ''), multiline=False, accept_handler=accept)
