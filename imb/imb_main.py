@@ -591,23 +591,23 @@ class Imb:
         with open('servo-manifests/opsani-servo-configmap.yaml', 'w') as out_file:
             imb_yaml.dump(servo_configmap, out_file)
 
-        # Generate launch_servo.sh script
-        script_str = 'kubectl apply -f servo-manifests/ --namespace {namespace} --context {context}'\
-            ''.format(namespace=self.servo_namespace, context=self.k8sImb.context['name'])
-        script_str = script_str + '\n' + 'kubectl logs --context {context} -n {namespace} -f '\
-            '$(kubectl get pods --context {context} -n {namespace} -o jsonpath=\'{{.items[?(@.metadata.labels.comp=="opsani-servo")].metadata.name}}\')'\
-            ''.format(namespace=self.servo_namespace, context=self.k8sImb.context['name'])
-
-        with open('launch_servo.sh', 'w') as out_file:
-            out_file.write(script_str)
-        os.chmod('launch_servo.sh', os.stat('launch_servo.sh').st_mode | stat.S_IEXEC)
-
         if self.other_info.get('credentials') or any(mod.other_info.get('missing_info') for mod in self.imb_modules):
             finished_title = 'Partial Discovery Complete'
             finished_prompt = [
                 "Partial discovery completed. Please reach out to Opsani support for assistance", 
                 "in completing configuration of the manifests contained in the servo-manifests folder"]
         else:
+            # Generate launch_servo.sh script
+            script_str = 'kubectl apply -f servo-manifests/ --namespace {namespace} --context {context}'\
+                ''.format(namespace=self.servo_namespace, context=self.k8sImb.context['name'])
+            script_str = script_str + '\n' + 'kubectl logs --context {context} -n {namespace} -f '\
+                '$(kubectl get pods --context {context} -n {namespace} -o jsonpath=\'{{.items[?(@.metadata.labels.comp=="opsani-servo")].metadata.name}}\')'\
+                ''.format(namespace=self.servo_namespace, context=self.k8sImb.context['name'])
+
+            with open('launch_servo.sh', 'w') as out_file:
+                out_file.write(script_str)
+            os.chmod('launch_servo.sh', os.stat('launch_servo.sh').st_mode | stat.S_IEXEC)
+
             finished_title = 'Discovery Complete'
             finished_prompt = [
                 "Discovery complete. Run the following command:",

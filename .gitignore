@@ -9,3 +9,5 @@ servo-manifests/opsani-servo-auth.yaml
 servo-manifests/opsani-servo-configmap.yaml
 servo-manifests/opsani-servo-deployment.yaml
 servo-manifests/opsani-servo-rbac.yaml
+/opsani.env
+

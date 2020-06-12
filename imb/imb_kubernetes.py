@@ -133,17 +133,24 @@ class ImbKubernetes:
             # Get contexts, prompt
             try:
                 contexts, _ = kubernetes.config.list_kube_config_contexts() # get active context from default kube config location
+            except IsADirectoryError as e:
+                state_data['invalid_kubeconfig'] = True
+                state_data['invalid_kubeconfig_title'] = 'No Kubeconfig Found'
+                state_data['invalid_kubeconfig_message'] = [
+                    'Kubernetes config at the location {} is a dicrectory and not a config file.'.format(self.kubeConfigPath),
+                    'Please ensure you have mapped your kubeconfig volume mount correctly'
+                ]
             except kubernetes.config.config_exception.ConfigException as e:
                 state_data['invalid_kubeconfig'] = True
                 if 'Invalid kube-config file. No configuration found.' in str(e):
-                    self.exit_title = 'No Kubeconfig Found'
-                    self.exit_prompt = [
+                    state_data['invalid_kubeconfig_title'] = 'No Kubeconfig Found'
+                    state_data['invalid_kubeconfig_message'] = [
                         'IMB was unable to locate a kubernetes config at the location {}.'.format(self.kubeConfigPath),
                         'Please ensure you have a valid kubeconfig on this host'
                     ]
                 elif 'Invalid kube-config file. Expected object with name  in' in str(e) and 'config/contexts list' in str(e):
-                    self.exit_title = 'Kubeconfig Contained No Contexts'
-                    self.exit_prompt = [
+                    state_data['invalid_kubeconfig_title'] = 'Kubeconfig Contained No Contexts'
+                    state_data['invalid_kubeconfig_message'] = [
                         'The kubernetes config located at {} contained no contexts.'.format(self.kubeConfigPath),
                         'Please ensure you have a valid kubeconfig on this host'
                     ]
@@ -162,6 +169,8 @@ class ImbKubernetes:
                     state_data['context'] = contexts[result.value]
 
         if state_data.get('invalid_kubeconfig'):
+            self.exit_title = state_data['invalid_kubeconfig_title']
+            self.exit_prompt = state_data['invalid_kubeconfig_message']
             call_next(self.prompt_exit)
         elif state_data.get('other_selected'):
             call_next(self.prompt_other)
