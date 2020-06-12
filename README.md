@@ -6,11 +6,11 @@ docker build . -t opsani/imb -t imb
 
 ## Run with Docker (AWS)
 
-docker run --rm -it -v $(pwd):/work -v ~/.kube/config:/root/.kube/config -v ~/.aws/:/root/.aws/ opsani/imb
+docker run --rm -it -v $(pwd):/work --mount type=bind,source=$(cd ~/.kube/ && pwd)/config,target=/root/.kube/config -v ~/.aws/:/root/.aws/ opsani/imb
 
 ## Set up an alias
 
-alias imb='docker run --rm -it -v $(pwd):/work -v ~/.kube/config:/root/.kube/config -v ~/.aws/:/root/.aws/ -v ~/.gcloud:/root/.gcloud  opsani/k8s-imb:alpha'
+alias imb='docker run --rm -it -v $(pwd):/work --mount type=bind,source=$(cd ~/.kube/ && pwd)/config,target=/root/.kube/config -v ~/.aws/:/root/.aws/ -v ~/.gcloud:/root/.gcloud  opsani/k8s-imb:alpha'
 
 ## Dependencies
 
