@@ -15,6 +15,7 @@ servo_role = {
     "rules": [
         {
             "apiGroups": [
+                "apps",
                 "extensions"
             ],
             "resources": [
@@ -24,10 +25,8 @@ servo_role = {
                 "get",
                 "list",
                 "watch",
-                "create",
                 "update",
-                "patch",
-                "delete"
+                "patch"
             ]
         },
         {
@@ -35,16 +34,15 @@ servo_role = {
                 ""
             ],
             "resources": [
-                "pods"
+                "pods",
+                "replicasets"
             ],
             "verbs": [
                 "get",
                 "list",
                 "watch",
-                "create",
                 "update",
-                "patch",
-                "delete"
+                "patch"
             ]
         }
     ]

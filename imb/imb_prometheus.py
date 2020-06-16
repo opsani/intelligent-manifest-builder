@@ -10,7 +10,7 @@ import time
 KNOWN_METRICS = {
     'envoy_cluster_upstream_rq_total': ('main_request_rate', 'sum(rate({}[1m]))', 'rpm'),
     # 'envoy_cluster_external_upstream_rq_time_bucket': ('main_p90_time', 'histogram_quantile(0.9,sum(rate({}[1m])) by (envoy_cluster_name, le))', 'ms'),
-    'api_requests_total': ('main_request_rate', 'sum(rate({}))', 'rpm'),
+    'api_requests_total': ('main_request_rate', 'sum(rate({}[1m]))', 'rpm'),
 }
 
 GATHERED_INFO = set(['prometheus_endpoint', 'local_endpoint', 'desired_deployment_metrics', 'configured_deployment_metrics', 'perf_metric'])

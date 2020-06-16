@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup ( name='imb',
-  version='0.1.0',
+  version='0.1.4',
   py_modules=[
       'imb.imb_main',
       'imb.imb_tui',
