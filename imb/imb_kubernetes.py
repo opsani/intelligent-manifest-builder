@@ -26,6 +26,7 @@ class ImbKubernetes:
         self.other_message = None
 
         # Assign defaults to properties referenced externally in case they don't get set because of Other selection or error
+        self.version_pre_114 = False
         self.prometheusService = None
         self.namespace = ''
         self.depLabels = {}
@@ -185,6 +186,12 @@ class ImbKubernetes:
         self.apps_client = kubernetes.client.AppsV1Api()
         self.exts_client = kubernetes.client.ExtensionsV1beta1Api()
         self.autoscaling_client = kubernetes.client.AutoscalingV1Api()
+
+        cluster_info = kubernetes.client.VersionApi().get_code()
+        if int(cluster_info.major) < 1:
+            self.version_pre_114 = True
+        elif int(cluster_info.major) == 1 and int(re.search(r'\d+', cluster_info.minor)[0]) < 14:
+            self.version_pre_114 = True
 
         if not state_data:
             state_data['interacted'] = False

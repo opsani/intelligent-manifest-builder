@@ -21,6 +21,23 @@ import imb.imb_yaml as imb_yaml
 
 GATHERED_INFO = set(['opsani_account', 'app_name', 'recommended_servo_image', 'servo_namespace'])
 
+LAUNCH_SERVO = '''
+kubectl apply -f servo-manifests/ --namespace {namespace} --context {context}
+
+function servo_logs {{
+    kubectl logs --context {context} -n {namespace} -f $(kubectl get pods --context {context} -n {namespace} -o jsonpath=\'{{.items[?(@.metadata.labels.comp=="opsani-servo")].metadata.name}}\')
+}}
+
+read -p $"`echo $'\\n>'`Follow servo logs? (y/N)" yn
+case $yn in
+    [Yy]* )
+        printf "## Will follow logs in 5 seconds to allow for container start. Press CTRL+C to exit at any time ##\\n\\n"
+        sleep 5; 
+        servo_logs;;
+    [Nn]* ) exit;;
+esac
+'''
+
 class Imb:
     def __init__(self):
         # list of methods to run
@@ -30,6 +47,7 @@ class Imb:
         #   and on_error hooks can be called from the method's __self__ property
         self.run_stack = []
 
+        self.finished_discovery = False # Toggle behavious such as writing state depending on wheter discovery was finished
         self.finished_message = [] # List of strings that are joined together and printed when Imb finishes discovery
         self.imb_modules = [] # Used to gather other info
 
@@ -181,7 +199,8 @@ class Imb:
             self.call_next(self.initialize_discovery) # append first discovery method onto run stack
             await self.execute_run_stack() # start run_stack
 
-            await self.write_state() # write out discovery.yaml, push to OCO if user accepts
+            if not self.finished_discovery:
+                await self.write_state() # write out discovery.yaml, push to OCO if user accepts
         except asyncio.CancelledError:
             await self.write_state()
             raise
@@ -566,6 +585,8 @@ class Imb:
         with open('servo-manifests/opsani-servo-auth.yaml', 'w') as out_file:
             imb_yaml.dump(servo_secret, out_file)
 
+        if self.k8sImb.version_pre_114:
+            servo_deployment['apiVersion'] = 'extensions/v1beta1'
         servo_deployment['metadata']['namespace'] = self.servo_namespace
         servo_deployment['spec']['template']['spec']['containers'][0]['image'] = self.recommended_servo_image
         servo_deployment['spec']['template']['spec']['containers'][0]['args'] = [
@@ -598,12 +619,8 @@ class Imb:
                 "in completing configuration of the manifests contained in the servo-manifests folder"]
         else:
             # Generate launch_servo.sh script
-            script_str = 'kubectl apply -f servo-manifests/ --namespace {namespace} --context {context}'\
-                ''.format(namespace=self.servo_namespace, context=self.k8sImb.context['name'])
-            script_str = script_str + '\n' + 'kubectl logs --context {context} -n {namespace} -f '\
-                '$(kubectl get pods --context {context} -n {namespace} -o jsonpath=\'{{.items[?(@.metadata.labels.comp=="opsani-servo")].metadata.name}}\')'\
-                ''.format(namespace=self.servo_namespace, context=self.k8sImb.context['name'])
-
+            self.finished_discovery = True
+            script_str = LAUNCH_SERVO.format(namespace=self.servo_namespace, context=self.k8sImb.context['name'])
             with open('launch_servo.sh', 'w') as out_file:
                 out_file.write(script_str)
             os.chmod('launch_servo.sh', os.stat('launch_servo.sh').st_mode | stat.S_IEXEC)

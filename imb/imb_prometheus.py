@@ -148,7 +148,7 @@ class ImbPrometheus:
                 
         if state_data.get('other_selected'):
             call_next(self.prompt_other)
-        elif state_data.get('install_prometheus_selected'):
+        elif state_data.get('install_prometheus_selected') and not self.k8sImb.prometheusService:
             self.exit_title = 'Install Prometheus'
             self.exit_prompt = [
                 'Install prometheus:',
@@ -159,6 +159,7 @@ class ImbPrometheus:
                 're-run IMB in order to continue the discovery process.',
                 'Select Ok to exit or Back to change previous selections'
             ]
+            self.finished_message.extend([ '', '########################' ] + self.exit_prompt + [ '########################', '' ])
             call_next(self.prompt_exit)
         else:
             self.remote_prometheus_used = state_data['remote_prometheus_used']
