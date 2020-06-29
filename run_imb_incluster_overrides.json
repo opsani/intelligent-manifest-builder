@@ -1,0 +1,16 @@
+{
+    "spec": {
+        "containers": [
+            {
+                "name": "imb",
+                "image": "959612087337.dkr.ecr.us-east-2.amazonaws.com/imb-dev:latest",
+                "stdin": true,
+                "tty": true,
+                "env": [{
+                    "name": "POD_SERVICE_ACCOUNT_NAME",
+                    "valueFrom": {"fieldRef": {"fieldPath": "spec.serviceAccountName"}}
+                }]
+            }
+        ]
+    }
+}

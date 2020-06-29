@@ -344,6 +344,7 @@ class Imb:
             'optimization' : {}
         }
         self.imbConfig = {}
+        self.running_in_k8s = bool(os.getenv('KUBERNETES_SERVICE_HOST'))
 
         env_path = Path('./opsani.env')
         if not env_path.exists():
@@ -438,7 +439,8 @@ class Imb:
             finished_message=self.finished_message,
             imbConfig=self.imbConfig,
             ocoOverride=self.ocoOverride,
-            servoConfig=self.servoConfig
+            servoConfig=self.servoConfig,
+            running_in_k8s=self.running_in_k8s
         )
         self.imb_modules.append(self.k8sImb)
         call_next(self.k8sImb.run)

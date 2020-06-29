@@ -1,6 +1,7 @@
 
 import json
 import kubernetes
+import os
 from pathlib import Path
 import re
 
@@ -11,7 +12,7 @@ EXCLUDED_NAMESPACES = ['kube-node-lease', 'kube-public', 'kube-system']
 GATHERED_INFO = set(['context', 'namespace', 'deployment_name', 'container_settings'])
 
 class ImbKubernetes:
-    def __init__(self, ui, finished_method, finished_message, imbConfig, ocoOverride, servoConfig):
+    def __init__(self, ui, finished_method, finished_message, imbConfig, ocoOverride, servoConfig, running_in_k8s):
         self.ui = ui # User interface
         self.finished_method = finished_method # Method to call next when this section finishes
         self.finished_message = finished_message # Array of strings printed when Imb finishes. Can be appended/prepended with extra info or replaced when error occurs
@@ -19,6 +20,7 @@ class ImbKubernetes:
         self.imbConfig = imbConfig # input loaded from oimb.yaml
         self.ocoOverride = ocoOverride # output dumped to override.yaml
         self.servoConfig = servoConfig # output config.yaml payload dumped to opsani-servo-configmap.yaml
+        self.running_in_k8s = running_in_k8s # whether IMB is running within a cluster
 
         # Initialize info used in Other/Error handling
         self.other_info = {}
@@ -131,43 +133,52 @@ class ImbKubernetes:
 
         if not state_data:
             state_data['interacted'] = False
-            # Get contexts, prompt
-            try:
-                contexts, _ = kubernetes.config.list_kube_config_contexts() # get active context from default kube config location
-            except IsADirectoryError as e:
-                state_data['invalid_kubeconfig'] = True
-                state_data['invalid_kubeconfig_title'] = 'No Kubeconfig Found'
-                state_data['invalid_kubeconfig_message'] = [
-                    'Kubernetes config at the location {} is a dicrectory and not a config file.'.format(self.kubeConfigPath),
-                    'Please ensure you have mapped your kubeconfig volume mount correctly'
-                ]
-            except kubernetes.config.config_exception.ConfigException as e:
-                state_data['invalid_kubeconfig'] = True
-                if 'Invalid kube-config file. No configuration found.' in str(e):
+            if self.running_in_k8s:
+                with open('/var/run/secrets/kubernetes.io/serviceaccount/namespace') as in_file:
+                    state_data['context'] = {
+                        'cluster': 'in-cluster', # cluster name is not available within k8s pod https://github.com/kubernetes/kubernetes/issues/44954
+                        'namespace': in_file.read(),
+                        'user': os.getenv('POD_SERVICE_ACCOUNT_NAME')
+                    }
+            else:
+                # Get contexts, prompt
+                try:
+                    contexts, _ = kubernetes.config.list_kube_config_contexts() # get active context from default kube config location
+                except IsADirectoryError as e:
+                    state_data['invalid_kubeconfig'] = True
                     state_data['invalid_kubeconfig_title'] = 'No Kubeconfig Found'
                     state_data['invalid_kubeconfig_message'] = [
-                        'IMB was unable to locate a kubernetes config at the location {}.'.format(self.kubeConfigPath),
-                        'Please ensure you have a valid kubeconfig on this host'
+                        'Kubernetes config at the location {} is a dicrectory and not a config file.'.format(self.kubeConfigPath),
+                        'Please ensure you have mapped your kubeconfig volume mount correctly'
                     ]
-                elif 'Invalid kube-config file. Expected object with name  in' in str(e) and 'config/contexts list' in str(e):
-                    state_data['invalid_kubeconfig_title'] = 'Kubeconfig Contained No Contexts'
-                    state_data['invalid_kubeconfig_message'] = [
-                        'The kubernetes config located at {} contained no contexts.'.format(self.kubeConfigPath),
-                        'Please ensure you have a valid kubeconfig on this host'
-                    ]
-                else:
-                    raise # Trigger section exception handler for unknown error/error that user can't correct
+                except kubernetes.config.config_exception.ConfigException as e:
+                    state_data['invalid_kubeconfig'] = True
+                    if 'Invalid kube-config file. No configuration found.' in str(e):
+                        state_data['invalid_kubeconfig_title'] = 'No Kubeconfig Found'
+                        state_data['invalid_kubeconfig_message'] = [
+                            'IMB was unable to locate a kubernetes config at the location {}.'.format(self.kubeConfigPath),
+                            'Please ensure you have a valid kubeconfig on this host'
+                        ]
+                    elif 'Invalid kube-config file. Expected object with name  in' in str(e) and 'config/contexts list' in str(e):
+                        state_data['invalid_kubeconfig_title'] = 'Kubeconfig Contained No Contexts'
+                        state_data['invalid_kubeconfig_message'] = [
+                            'The kubernetes config located at {} contained no contexts.'.format(self.kubeConfigPath),
+                            'Please ensure you have a valid kubeconfig on this host'
+                        ]
+                    else:
+                        raise # Trigger section exception handler for unknown error/error that user can't correct
 
-            if not state_data.get('invalid_kubeconfig'):
-                radioValues = ['{} - {}'.format(c['name'], c['context']['cluster']) for c in contexts]
-                result = await self.ui.prompt_radio_list(values=radioValues, title='Select Context of App to be Optimized', header='Context - Cluster:')
-                state_data['interacted'] = True
-                if result.back_selected:
-                    return True
-                elif result.other_selected:
-                    state_data['other_selected'] = True
-                else:
-                    state_data['context'] = contexts[result.value]
+                # Prompt contexts if no issues
+                if not state_data.get('invalid_kubeconfig'):
+                    radioValues = ['{} - {}'.format(c['name'], c['context']['cluster']) for c in contexts]
+                    result = await self.ui.prompt_radio_list(values=radioValues, title='Select Context of App to be Optimized', header='Context - Cluster:')
+                    state_data['interacted'] = True
+                    if result.back_selected:
+                        return True
+                    elif result.other_selected:
+                        state_data['other_selected'] = True
+                    else:
+                        state_data['context'] = contexts[result.value]
 
         if state_data.get('invalid_kubeconfig'):
             self.exit_title = state_data['invalid_kubeconfig_title']
@@ -181,7 +192,11 @@ class ImbKubernetes:
 
     async def select_namespace(self, call_next, state_data):
         # init client with desired kubeconfig and context
-        kubernetes.config.load_kube_config(config_file=self.kubeConfigPath, context=self.context['name'])
+        if self.running_in_k8s:
+            kubernetes.config.load_incluster_config()
+        else:
+            kubernetes.config.load_kube_config(config_file=self.kubeConfigPath, context=self.context['name'])
+        
         self.core_client = kubernetes.client.CoreV1Api()
         self.apps_client = kubernetes.client.AppsV1Api()
         self.exts_client = kubernetes.client.ExtensionsV1beta1Api()
