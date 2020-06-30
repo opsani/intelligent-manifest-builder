@@ -1,5 +1,7 @@
 {
     "spec": {
+        "serviceAccountName": "opsani-imb",
+        "terminationGracePeriodSeconds": 0,
         "containers": [
             {
                 "name": "imb",

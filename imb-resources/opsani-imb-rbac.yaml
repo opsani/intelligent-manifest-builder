@@ -1,0 +1,53 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: opsani-imb
+  namespace: app2
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: opsani-servo
+  namespace: app2
+rules:
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "watch", "update", "patch"]
+- apiGroups: ["", "apps","extensions", "autoscaling"]
+  resources: ["pods","namespaces", "replicasets","PodDisruptionBudget", "horizontalpodautoscalers", "ingresses"]
+  verbs: ["get", "list", "watch" ]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: opsani-servo-rw-resources
+  namespace: app2
+subjects:
+- kind: ServiceAccount
+  name: opsani-imb
+roleRef:
+  kind: Role
+  name: opsani-servo
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: opsani-imb
+rules:
+- apiGroups: [""]
+  resources: ["namespaces", "services"]
+  verbs: ["get", "list", "watch" ]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: opsani-imb-r-cluster-resources
+subjects:
+- kind: ServiceAccount
+  namespace: app2
+  name: opsani-imb
+roleRef:
+  kind: ClusterRole
+  name: opsani-imb
+  apiGroup: rbac.authorization.k8s.io

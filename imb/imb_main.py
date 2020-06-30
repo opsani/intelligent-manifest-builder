@@ -22,10 +22,10 @@ import imb.imb_yaml as imb_yaml
 GATHERED_INFO = set(['opsani_account', 'app_name', 'recommended_servo_image', 'servo_namespace'])
 
 LAUNCH_SERVO = '''
-kubectl apply -f servo-manifests/ --namespace {namespace} --context {context}
+kubectl apply -f servo-manifests/ --namespace {namespace}{context_flag_val}
 
 function servo_logs {{
-    kubectl logs --context {context} -n {namespace} -f $(kubectl get pods --context {context} -n {namespace} -o jsonpath=\'{{.items[?(@.metadata.labels.comp=="opsani-servo")].metadata.name}}\')
+    kubectl logs{context_flag_val} -n {namespace} -f $(kubectl get pods{context_flag_val} -n {namespace} -o jsonpath=\'{{.items[?(@.metadata.labels.comp=="opsani-servo")].metadata.name}}\')
 }}
 
 read -p $"`echo $'\\n>'`Follow servo logs? (y/N)" yn
@@ -94,7 +94,7 @@ class Imb:
             elif not result.value:
                 self.app_state = {}
 
-    async def write_state(self, formatted_exception=None):
+    async def write_state(self, disable_back=True, formatted_exception=None):
         output = { 'state': self.app_state }
         prompt='Would you like to send your discovery.yaml telemetry to Opsani?'
         if formatted_exception:
@@ -115,11 +115,13 @@ class Imb:
                 result = await self.ui.prompt_yn(
                     title='Push Discovery Telemetry?',
                     prompt=prompt,
-                    disable_back=True,
+                    disable_back=disable_back,
                     allow_other=True,
                     other_button_text="Preview"
                 )
-                if result.other_selected:
+                if result.back_selected:
+                    return True
+                elif result.other_selected:
                     await self.ui.prompt_multiline_text_output(title='discovery.yaml', text=imb_yaml.dump(output))
                 else:
                     break
@@ -202,10 +204,9 @@ class Imb:
             if not self.finished_discovery:
                 await self.write_state() # write out discovery.yaml, push to OCO if user accepts
         except asyncio.CancelledError:
-            await self.write_state()
             raise
         except Exception:
-            await self.write_state(format_exc())
+            await self.write_state(formatted_exception=format_exc())
             self.finished_message = ["IMB has encountered an unexpected circumstance. Please reach out to Opsani support",
                 "with a copy of your discovery.yaml telemetry file if you did not send it when prompted"]
             # raise # no longer need to raise since exception info is captured in write_state
@@ -302,7 +303,12 @@ class Imb:
                     go_back = await current_method(self.call_next, state_data)
                     current_method.__self__.on_forward(state_data)
                 except asyncio.CancelledError:
-                    raise
+                    go_back_from_esc = await self.write_state(disable_back=False)
+                    if not go_back_from_esc:
+                        raise
+                    else:
+                        state_data = {}
+                        continue
                 except: # Error handling is included in the run_stack so the user can back over it and try again or change info
                     state_data['errored'] = True
                     state_data['error'] = imb_yaml.multiline_str(format_exc())
@@ -621,8 +627,8 @@ class Imb:
                 "in completing configuration of the manifests contained in the servo-manifests folder"]
         else:
             # Generate launch_servo.sh script
-            self.finished_discovery = True
-            script_str = LAUNCH_SERVO.format(namespace=self.servo_namespace, context=self.k8sImb.context['name'])
+            context_flag_val = '' if self.k8sImb.context['name'] == 'in-cluster' else ' --context {}'.format(self.k8sImb.context['name'])
+            script_str = LAUNCH_SERVO.format(namespace=self.servo_namespace, context_flag_val=context_flag_val)
             with open('launch_servo.sh', 'w') as out_file:
                 out_file.write(script_str)
             os.chmod('launch_servo.sh', os.stat('launch_servo.sh').st_mode | stat.S_IEXEC)
@@ -638,6 +644,7 @@ class Imb:
                 "    https://optune.ai/accounts/{account}/applications/{app}".format(account=self.opsani_account, app=self.app_name),
                 "",
                 "to observe the optimization process."] + self.finished_message
+            self.finished_discovery = True
 
         result = await self.ui.prompt_ok(title=finished_title, prompt=finished_prompt + ['', 'Press Enter to exit or select Back to change details'])
         if result.back_selected:

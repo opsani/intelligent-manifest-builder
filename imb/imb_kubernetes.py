@@ -136,7 +136,7 @@ class ImbKubernetes:
             if self.running_in_k8s:
                 with open('/var/run/secrets/kubernetes.io/serviceaccount/namespace') as in_file:
                     state_data['context'] = {
-                        'cluster': 'in-cluster', # cluster name is not available within k8s pod https://github.com/kubernetes/kubernetes/issues/44954
+                        'name': 'in-cluster', # cluster name is not available within k8s pod https://github.com/kubernetes/kubernetes/issues/44954
                         'namespace': in_file.read(),
                         'user': os.getenv('POD_SERVICE_ACCOUNT_NAME')
                     }
